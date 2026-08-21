@@ -32,8 +32,8 @@ notify() {
 }
 
 release_modifiers() {
-  # Super, Alt, Ctrl, Shift, and Y from Ctrl+Shift+Y.
-  ydotool key 125:0 126:0 56:0 100:0 29:0 97:0 42:0 54:0 21:0 \
+  # Super, Alt, Ctrl, Shift, and R from Meta+Alt+R.
+  ydotool key 125:0 126:0 56:0 100:0 29:0 97:0 42:0 54:0 19:0 \
     >>"$STATE_DIR/rewrite.log" 2>&1 || true
 }
 
@@ -76,7 +76,7 @@ Usage:
   rewrite-selection        Copy selection, rewrite, type replacement
   rewrite-selection --help
 
-Select text first, then press the shortcut (Ctrl+Shift+Y).
+Select text first, then press the shortcut (Meta+Alt+R).
 
 Environment:
   DICTATE_LLM_MODEL   Ollama model (default: mistral:7b)

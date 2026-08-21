@@ -12,7 +12,7 @@ It is built for **PipeWire + Wayland**, with optional **NVIDIA CUDA** via `whisp
 2. Second click stops, runs `whisper-cli`, optionally copy-edits the text with Ollama, then types it with `ydotool`.
 3. Notifications stay low-urgency so Plasma does not steal focus from the app you were typing in.
 4. A system tray icon can show idle / recording / transcribing.
-5. Highlight text and press **Ctrl+Shift+Y** to rewrite it with the same local Mistral model.
+5. Highlight text and press **Meta+Alt+R** to rewrite it with the same local Mistral model.
 
 Default model order:
 
@@ -107,11 +107,9 @@ GNOME / Hyprland / Sway can bind either:
 
 ### Rewrite selection
 
-Highlight a sentence or paragraph, then press **Ctrl+Shift+Y** (or bind `local.rewrite-selection.desktop` to another Ctrl+Shift chord). The script copies the selection, rewrites it with `mistral:7b`, and types the result over the highlight.
+Highlight a sentence or paragraph, then press **Meta+Alt+R** (or bind `local.rewrite-selection.desktop` to another chord). The script copies the selection, rewrites it with `mistral:7b`, and types the result over the highlight.
 
 Use this for text you already wrote. Dictation cleanup stays a separate, stricter pass.
-
-Ctrl+Shift+Y is used instead of Ctrl+Shift+R so it does not steal Redo or browser hard-refresh.
 
 ### ydotool on Wayland
 
@@ -154,7 +152,7 @@ sudo systemctl restart ollama
 - **Click the tray mic** (or press the dictation shortcut): recording starts.
 - **Speak.**
 - **Click again:** transcribe, polish (if enabled), type into the focused field.
-- **Select text, then Ctrl+Shift+Y:** rewrite that selection in place.
+- **Select text, then Meta+Alt+R:** rewrite that selection in place.
 
 Set `DICTATE_LLM=0` if you want raw Whisper text with no local LLM. Rewrite still needs Ollama.
 
