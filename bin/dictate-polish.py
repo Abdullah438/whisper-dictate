@@ -14,7 +14,18 @@ LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 # Ollama unloads and reloads the model whenever num_ctx changes, so every
 # caller here (polish, rewrite, keepalive) must ask for the same context size.
-LLM_NUM_CTX = 4096
+# 8192 fits the prompt plus a reply for a full DICTATE_MAX_SECONDS dictation;
+# at 4096 a long one ran out of room and came back with its ending missing.
+LLM_NUM_CTX = 8192
+
+# Ten minutes of speech is roughly 1500 words. The old 1024 cap cut the reply
+# off mid-sentence at about four minutes, and nothing downstream noticed.
+LLM_NUM_PREDICT = 4096
+
+# Below this share of the spoken words, the reply is treated as damaged rather
+# than tightened. Copy-editing drops filler and stutters, which legitimately
+# costs some length, but not half of it.
+MIN_KEPT_WORDS = 0.6
 
 NOUN_REPLACEMENTS = (
     (r"\bu[\s-]*lamas?\b", "Ollama"),
@@ -251,7 +262,7 @@ def polish(raw: str) -> str:
         "keep_alive": -1,
         "options": {
             "temperature": 0.0,
-            "num_predict": 1024,
+            "num_predict": LLM_NUM_PREDICT,
             "num_ctx": LLM_NUM_CTX,
         },
         "messages": [
@@ -300,10 +311,17 @@ def polish(raw: str) -> str:
         method="POST",
     )
     opener = urllib.request.build_opener(NoRedirect)
+    # A long dictation takes proportionally longer to copy-edit.
+    timeout = min(90, 20 + len(raw) // 40)
     try:
-        with opener.open(req, timeout=20) as resp:
+        with opener.open(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode())
     except Exception:
+        return raw
+
+    # Ollama says so outright when it stopped because it ran out of tokens.
+    # The reply is a fragment, so keep the transcript we already have.
+    if data.get("done_reason") == "length":
         return raw
 
     text = (data.get("message") or {}).get("content") or ""
@@ -335,7 +353,18 @@ def polish(raw: str) -> str:
     )
     too_long = len(text) > max(len(raw) * 1.5, len(raw) + 80)
     too_new = len(raw_words) >= 4 and overlap < 0.4
-    if not text or too_long or too_new or pronoun_drift(raw, text) or prior_leak(raw, text, recent):
+    # Every other guard here watches for the model adding or altering words.
+    # This one watches for it losing them, which is what a truncated or
+    # summarised reply looks like: fluent, plausible, and missing the end.
+    too_short = len(raw_words) >= 40 and len(out_words) < len(raw_words) * MIN_KEPT_WORDS
+    if (
+        not text
+        or too_long
+        or too_short
+        or too_new
+        or pronoun_drift(raw, text)
+        or prior_leak(raw, text, recent)
+    ):
         return raw
     text = drop_unprompted(raw, text, SPOKEN_OLLAMA, "Ollama")
     return text

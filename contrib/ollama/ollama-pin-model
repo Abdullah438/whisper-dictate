@@ -25,7 +25,7 @@ payload = {
     # Same num_ctx as dictate-polish.py / rewrite-text.py. A different value
     # here makes Ollama reload the model on the next dictation, which is
     # exactly the cold load this keepalive exists to prevent.
-    "options": {"num_predict": 1, "temperature": 0, "num_ctx": 4096},
+    "options": {"num_predict": 1, "temperature": 0, "num_ctx": 8192},
 }
 req = urllib.request.Request(
     host + "/api/generate",
