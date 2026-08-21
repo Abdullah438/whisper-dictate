@@ -96,7 +96,7 @@ The tray uses the desktop StatusNotifier protocol (KDE Plasma, and most other Li
 The keyboard shortcut still works if you want it:
 
 1. Settings → Shortcuts → add the hidden launcher `local.dictate-toggle.desktop`.
-2. Bind it to **Meta+Alt+D**, or another chord that does not fight your desktop.
+2. Bind it to **Ctrl+Shift+/**, or another chord that does not fight your desktop.
 
 GNOME / Hyprland / Sway can bind either:
 
@@ -149,7 +149,7 @@ sudo systemctl restart ollama
 
 ## Usage
 
-- **Click the tray mic** (or press the dictation shortcut): recording starts.
+- **Click the tray mic** (or **Ctrl+Shift+/**): recording starts.
 - **Speak.**
 - **Click again:** transcribe, polish (if enabled), type into the focused field.
 - **Select text, then Meta+Alt+R:** rewrite that selection in place.
