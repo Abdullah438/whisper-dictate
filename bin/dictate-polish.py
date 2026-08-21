@@ -13,16 +13,26 @@ from urllib.parse import urlparse
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 NOUN_REPLACEMENTS = (
-    (r"\b[Oo]\s*[-]?llama\b", "Ollama"),
-    (r"\b[Oo]lama\b", "Ollama"),
-    (r"\b[Uu]lamas?\b", "Ollama"),
-    (r"\b[Uu]\s*lama\b", "Ollama"),
-    (r"\bphi[-\s]?4[-\s]?mini\b", "Phi-4 Mini"),
+    (r"\bu[\s-]*lamas?\b", "Ollama"),
+    (r"\bolama\b", "Ollama"),
+    (r"\bo[\s-]+llamas?\b", "Ollama"),
+)
+
+SPOKEN_OLLAMA = re.compile(
+    r"\b(u[\s-]*lamas?|olama|o[\s-]+llamas?|ollama)\b",
+    re.IGNORECASE,
 )
 
 
 def words(s: str) -> list[str]:
     return [w for w in re.findall(r"[a-z0-9']+", s.lower()) if w]
+
+
+def drop_unprompted(raw: str, text: str, spoken: re.Pattern[str], token: str) -> str:
+    if spoken.search(raw):
+        return text
+    text = re.sub(rf"\b{re.escape(token)}\b", "", text, flags=re.IGNORECASE)
+    return re.sub(r" +", " ", text).strip(" ,;:-")
 
 
 def fix_nouns(text: str) -> str:
@@ -68,8 +78,8 @@ def polish(raw: str) -> str:
                     "Never add information that was not spoken. "
                     "Only fix punctuation, capitalization, filler (um, uh, you know), "
                     "and obvious ASR mistakes (homophones, dropped small words, stutters). "
-                    "Vocabulary: Ollama is the local LLM app (never ulama, olama, or u-lama). "
-                    "Phi-4 Mini is a model name. Whisper is the speech recognizer. "
+                    "Do not add brand names, product names, or extra nouns. "
+                    "Never insert a word that was not spoken. "
                     "Keep the same meaning and roughly the same length. "
                     "If the transcript is a question, keep it as that same question. "
                     "Reply with the edited transcript only — no quotes, labels, or preamble."
@@ -124,6 +134,7 @@ def polish(raw: str) -> str:
     too_new = len(raw_words) >= 4 and overlap < 0.4
     if not text or too_long or too_new:
         return raw
+    text = drop_unprompted(raw, text, SPOKEN_OLLAMA, "Ollama")
     return text
 
 

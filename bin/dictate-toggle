@@ -10,7 +10,7 @@ LLM_MODEL="${DICTATE_LLM_MODEL:-mistral:7b}"
 LLM_HOST="${DICTATE_LLM_HOST:-http://127.0.0.1:11434}"
 LLM_ENABLED="${DICTATE_LLM:-1}"
 CLIPBOARD_ENABLED="${DICTATE_CLIPBOARD:-1}"
-WHISPER_PROMPT="${WHISPER_PROMPT:-Ollama, Whisper, Phi-4 Mini, local dictation.}"
+WHISPER_PROMPT="${WHISPER_PROMPT:-}"
 YDOTOOL_SOCKET="${YDOTOOL_SOCKET:-${XDG_RUNTIME_DIR:-/tmp}/.ydotool_socket}"
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 POLISH_BIN="${SELF_DIR}/dictate-polish.py"
@@ -187,8 +187,13 @@ stop_and_transcribe() {
     lang_args=(-l "$LANG")
   fi
 
+  local prompt_args=()
+  if [[ -n "$WHISPER_PROMPT" ]]; then
+    prompt_args=(--prompt "$WHISPER_PROMPT")
+  fi
+
   "$WHISPER_BIN" -m "$model" -f "$WAV" -nt -np -sns -otxt -of "$OUT_PREFIX" \
-    --prompt "$WHISPER_PROMPT" \
+    "${prompt_args[@]}" \
     "${lang_args[@]}" >/dev/null 2>"$STATE_DIR/whisper.log" || true
 
   local raw=""
@@ -197,7 +202,6 @@ stop_and_transcribe() {
   fi
   local text
   text="$(clean_text "$raw")"
-  text="$(fix_proper_nouns "$text")"
 
   if [[ -z "$text" ]]; then
     notify "Dictation" "Nothing transcribed. Try speaking a bit longer."
@@ -224,7 +228,7 @@ Environment:
   WHISPER_MODEL_DIR   Model directory (default: ~/.local/share/whisper.cpp/models)
   WHISPER_LANG        Language code, or "auto" (default: en)
   WHISPER_BIN         whisper.cpp CLI (default: whisper-cli)
-  YDOTOOL_SOCKET      ydotool socket (default: $XDG_RUNTIME_DIR/.ydotool_socket)
+  WHISPER_PROMPT      Initial prompt for Whisper (default: empty; do not put brand names here)
   DICTATE_LLM         1 to polish with Ollama (default), 0 to paste raw Whisper
   DICTATE_LLM_MODEL   Ollama model (default: mistral:7b)
   DICTATE_LLM_HOST    Ollama host (default: http://127.0.0.1:11434)
