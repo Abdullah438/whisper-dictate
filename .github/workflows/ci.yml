@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pytest
+        run: pip install pytest
+
+      - name: Run tests
+        run: pytest tests -q
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Lint shell scripts
+        run: |
+          shellcheck -x bin/dictate-common.sh bin/dictate-toggle bin/rewrite-selection \
+            bin/dictate-llm-keepalive contrib/ollama/ollama-pin-model \
+            install.sh uninstall.sh
+
+      - name: Check python syntax
+        run: |
+          python -m compileall -q bin/dictate-polish.py bin/rewrite-text.py
+          python -m py_compile bin/dictate-tray bin/dictate-watch
