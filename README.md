@@ -11,8 +11,13 @@ It is built for **PipeWire + Wayland**, with optional **NVIDIA CUDA** via `whisp
 1. First click (or shortcut press) starts a 16 kHz mono recording with `pw-cat`.
 2. Second click stops, runs `whisper-cli`, optionally copy-edits the text with Ollama, then types it with `ydotool`.
 3. Notifications stay low-urgency so Plasma does not steal focus from the app you were typing in.
-4. A system tray icon can show idle / recording / transcribing.
+4. A system tray icon can show idle / recording / transcribing, and can cancel a recording.
 5. Highlight text and run `rewrite-selection` (bind that script in your desktop) to rewrite it with the same local Mistral model.
+
+A recording never runs forever: it stops on its own after `DICTATE_MAX_SECONDS`
+(10 minutes by default), and it can stop when you simply stop talking — see
+[Hands-free stop](#hands-free-stop). `dictate-toggle --cancel` throws a recording
+away without transcribing or typing anything.
 
 Default model order:
 
@@ -80,13 +85,26 @@ sha256sum ~/.local/share/whisper.cpp/models/ggml-large-v3-turbo.bin
 
 `large-v3-turbo` is about 1.6 GB. Full `ggml-large-v3.bin` (~3.1 GB) is a bit more accurate and a lot slower; turbo is the better default for dictation.
 
+### Voice activity detection (recommended)
+
+Whisper invents text when it is handed near-silence — that is where `Thank you.`
+and `[BLANK_AUDIO]` come from. A VAD model trims the silence before decoding:
+
+```bash
+curl -L --fail --output ~/.local/share/whisper.cpp/models/ggml-silero-v5.1.2.bin \
+  https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin
+```
+
+It is picked up automatically once it is in the model directory (about 2 MB).
+Set `WHISPER_VAD=0` to ignore it.
+
 ### Tray icon
 
 `install.sh` puts **Whisper Dictation** in the system tray and in session autostart.
 
 - **Left-click** the microphone to start recording. The icon turns into a red record mark.
 - **Left-click** again to stop, transcribe, and type.
-- **Right-click** → Quit tray (dictation itself stays installed).
+- **Right-click** → Cancel and discard (throw away the current recording), or Quit tray (dictation itself stays installed).
 - Start it now with `dictate-tray --daemon &` if you do not want to log out.
 
 The tray uses the desktop StatusNotifier protocol (KDE Plasma, and most other Linux panels).
@@ -107,9 +125,70 @@ This project does not install keyboard shortcuts. Point your desktop at the scri
 
 **Hyprland / Sway:** bind the same paths in `hyprland.conf` or the Sway config.
 
+### Settings
+
+Settings live in `~/.config/whisper-dictate/config`, which `install.sh` seeds
+from [`contrib/config.example`](contrib/config.example):
+
+```bash
+# ~/.config/whisper-dictate/config
+DICTATE_SILENCE_SECONDS=2.5
+WHISPER_LANG=en
+```
+
+Use that file rather than `~/.bashrc` or `~/.zshrc`. A desktop global shortcut
+starts these scripts without your shell environment, so an `export` in a shell
+rc file never reaches them. An environment variable of the same name still wins
+over the file, which is handy for one-off runs:
+
+```bash
+DICTATE_LLM=0 dictate-toggle
+```
+
+The file is sourced by bash, so it is ignored if anyone but you can write it.
+
+### Hands-free stop
+
+Pressing the shortcut twice is not always practical. Two limits can end a
+recording for you:
+
+```bash
+DICTATE_MAX_SECONDS=600      # hard cap, on by default
+DICTATE_SILENCE_SECONDS=2.5  # stop after this much silence, off by default
+DICTATE_SILENCE_LEVEL=350    # RMS below which audio counts as silence
+```
+
+Silence only counts once you have actually started speaking, so a slow start
+does not cut the recording short. Raise `DICTATE_SILENCE_LEVEL` in a noisy room;
+lower it if a recording keeps running after you stop. `dictate-toggle --cancel`
+(or **Cancel and discard** in the tray) drops a recording without typing it.
+
+### Personal dictionary
+
+Whisper will keep mishearing the names and jargon you actually use. Put them in
+`~/.config/whisper-dictate/dictionary`, one per line:
+
+```
+# spoken form = replacement
+pipe wire = PipeWire
+why do tool = ydotool
+kubernetes = Kubernetes
+```
+
+The left side is matched whole-word and case-insensitively, and may be several
+words; longer entries are applied first. This pass runs last, after the LLM, so
+it always wins. Unlike `WHISPER_PROMPT`, it cannot push Whisper into inventing
+those words when you did not say them.
+
 ### Rewrite selection
 
-Highlight a sentence or paragraph, then run `rewrite-selection`. The script copies the selection, rewrites it with `mistral:7b`, and types the result over the highlight. A newline in the text is typed as Enter.
+Highlight a sentence or paragraph, then run `rewrite-selection`. The script reads the selection, rewrites it with `mistral:7b`, and types the result over the highlight. A newline in the text is typed as Enter.
+
+It reads the Wayland *primary* selection, which highlighting already fills, so
+the normal path never touches your clipboard. Apps that do not export a primary
+selection fall back to a synthetic `Ctrl+C`; that path empties the clipboard
+first, so a copy that never lands cannot type stale clipboard content over your
+text. Set `DICTATE_PRIMARY=0` to always use `Ctrl+C`.
 
 Use this for text you already wrote. Dictation cleanup stays a separate, stricter pass.
 
@@ -127,16 +206,18 @@ You also need write access to `/dev/uinput` (often the `input` group, or the ude
 
 Whisper output is usable on its own. Ollama only fixes punctuation, capitalization, and obvious ASR mistakes. It is instructed **not to answer questions** — a dictated question stays a question.
 
+The last four accepted dictations stay in `$XDG_RUNTIME_DIR/whisper-dictate/recent.json` for this login. Polish may use them to resolve names and the current topic. It must still emit only the line you just spoke. Set `DICTATE_CONTEXT=0` to turn that off. This is not fed into Whisper’s `--prompt`.
+
 ```bash
 # Install Ollama, then:
 ollama pull mistral:7b
 systemctl --user enable --now dictate-llm-keepalive.timer
 ```
 
-To skip polish:
+To skip polish, put this in `~/.config/whisper-dictate/config`:
 
 ```bash
-export DICTATE_LLM=0
+DICTATE_LLM=0
 ```
 
 To keep `mistral:7b` loaded across reboots, copy the optional system drop-in:
@@ -156,9 +237,12 @@ sudo systemctl restart ollama
 - **Click again** (or the same shortcut): transcribe, polish (if enabled), type into the focused field.
 - **Select text, then your rewrite shortcut:** rewrite that selection in place.
 
-Set `DICTATE_LLM=0` if you want raw Whisper text with no local LLM. Rewrite still needs Ollama.
+Set `DICTATE_LLM=0` in the config file if you want raw Whisper text with no local LLM. Rewrite still needs Ollama.
 
-## Environment
+## Settings reference
+
+Set these in `~/.config/whisper-dictate/config`, or as environment variables for
+a single run.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -166,11 +250,29 @@ Set `DICTATE_LLM=0` if you want raw Whisper text with no local LLM. Rewrite stil
 | `WHISPER_MODEL_DIR` | `~/.local/share/whisper.cpp/models` | Search directory |
 | `WHISPER_LANG` | `en` | Language, or `auto` |
 | `WHISPER_BIN` | `whisper-cli` | Binary name |
+| `WHISPER_PROMPT` | (empty) | Initial prompt; do not put brand names here |
+| `WHISPER_VAD` | `auto` | Use the VAD model when present; `0` disables |
+| `WHISPER_VAD_MODEL` | `$WHISPER_MODEL_DIR/ggml-silero-v5.1.2.bin` | Silero VAD weights |
+| `WHISPER_TIMEOUT` | `120` | Seconds before transcription is abandoned |
 | `YDOTOOL_SOCKET` | `$XDG_RUNTIME_DIR/.ydotool_socket` | ydotoold socket |
 | `DICTATE_LLM` | `1` | `0` skips Ollama |
 | `DICTATE_LLM_MODEL` | `mistral:7b` | Cleanup model |
 | `DICTATE_LLM_HOST` | `http://127.0.0.1:11434` | Ollama API (localhost only unless `DICTATE_LLM_ALLOW_REMOTE=1`) |
 | `DICTATE_CLIPBOARD` | `1` | `0` skips Klipper / `wl-copy` |
+| `DICTATE_CONTEXT` | `1` | `0` stops polish from seeing recent dictations |
+| `DICTATE_DICTIONARY` | `~/.config/whisper-dictate/dictionary` | Spoken-word replacements |
+| `DICTATE_MAX_SECONDS` | `600` | Stop recording after this long; `0` disables |
+| `DICTATE_SILENCE_SECONDS` | `0` | Stop after this much silence; `0` disables |
+| `DICTATE_SILENCE_LEVEL` | `350` | RMS below which audio counts as silence |
+| `DICTATE_KEY_DELAY` | `8` | `ydotool` key delay, in ms |
+| `DICTATE_PASTE_THRESHOLD` | `0` | Send `Ctrl+V` above this length; `0` disables |
+| `DICTATE_PRIMARY` | `1` | Rewrite reads the primary selection; `0` uses `Ctrl+C` |
+| `DICTATE_CONFIG` | `~/.config/whisper-dictate/config` | Settings file |
+
+Long transcripts arrive one keystroke at a time, which is slow and can be
+mangled by editor autoindent or autocomplete. `DICTATE_PASTE_THRESHOLD=200`
+sends `Ctrl+V` instead for anything longer than 200 characters. It is off by
+default because `Ctrl+V` is not reliable in every Wayland app.
 
 ## Security
 
@@ -187,21 +289,50 @@ Details, checksums, and how to report issues: [SECURITY.md](SECURITY.md).
 ## Layout
 
 ```
+bin/dictate-common.sh           # settings file loader + lock helper
 bin/dictate-toggle              # toggle recording / transcribe
+bin/dictate-watch               # time cap and silence auto-stop for a recording
 bin/dictate-tray                # system tray (click to toggle)
-bin/dictate-polish.py           # copy-edit + proper-noun fixes (stdin only)
+bin/dictate-polish.py           # copy-edit + dictionary fixes (stdin only)
 bin/rewrite-selection           # rewrite highlighted text
 bin/rewrite-text.py             # Mistral rewrite (stdin only)
 bin/dictate-llm-keepalive       # ping Ollama so the model stays resident
+contrib/config.example          # seeds ~/.config/whisper-dictate/config
+contrib/dictionary.example      # seeds ~/.config/whisper-dictate/dictionary
 contrib/local.dictate-toggle.desktop
 contrib/local.dictate-tray.desktop
 contrib/local.rewrite-selection.desktop
 contrib/systemd/                # user units + ydotool socket drop-in
 contrib/ollama/                 # optional system pin for mistral:7b
+tests/                          # pytest suite (guardrails, dictionary, locking)
 install.sh
+uninstall.sh
 LICENSE
 SECURITY.md
 ```
+
+## Development
+
+```bash
+pip install pytest
+pytest tests -q
+shellcheck bin/dictate-toggle bin/dictate-common.sh bin/rewrite-selection \
+  bin/dictate-llm-keepalive install.sh uninstall.sh
+```
+
+The tests cover the parts that fail silently: the polish guardrails that stop
+the model from answering your dictation, the dictionary, the WAV level reader
+behind the silence stop, and the lock that must not wedge dictation after a
+crash. They never contact Ollama — the model reply is canned.
+
+## Uninstall
+
+```bash
+./uninstall.sh           # scripts, launchers, autostart, units
+./uninstall.sh --purge   # also ~/.config/whisper-dictate
+```
+
+Whisper models, packages, and the shortcuts you bound yourself are left alone.
 
 ## License
 
