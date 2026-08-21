@@ -318,9 +318,10 @@ a single run.
 | `DICTATE_MAX_SECONDS` | `600` | Stop recording after this long; `0` disables |
 | `DICTATE_SILENCE_SECONDS` | `0` | Stop after this much silence; `0` disables |
 | `DICTATE_SILENCE_LEVEL` | `0` | Fixed silence RMS; `0` calibrates to your mic and voice |
-| `DICTATE_KEY_DELAY` | `8` | `ydotool` key delay, in ms |
+| `DICTATE_KEY_DELAY` | `5` | `ydotool` key delay and hold, in ms |
 | `DICTATE_NEWLINE` | `shift-enter` | How a line break is typed: `shift-enter`, `enter`, `space` |
-| `DICTATE_INSERT` | `type` | `type` keystroke by keystroke, or `paste` in one keystroke |
+| `DICTATE_INSERT` | `type` | `type` keystroke by keystroke, `paste` in one, or `auto` |
+| `DICTATE_TYPE_MAX_CHARS` | `80` | `auto` types up to this length and pastes above it |
 | `DICTATE_PASTE_KEY` | `shift+insert` | Paste chord: `shift+insert`, `ctrl+v`, `ctrl+shift+v` |
 | `DICTATE_PRIMARY` | `1` | Rewrite reads the primary selection; `0` uses `Ctrl+C` |
 | `DICTATE_CONFIG` | `~/.config/whisper-dictate/config` | Settings file |
@@ -356,9 +357,19 @@ through your clipboard; `shift+insert` also replaces your primary selection.
 A few password and payment fields refuse paste outright. With the clipboard
 switched off it falls back to typing.
 
-If you would rather keep typing, `DICTATE_KEY_DELAY=0` is far quicker than the
-default, though some apps drop or reorder characters that arrive with no delay
-between them.
+`DICTATE_INSERT=auto` splits the difference, and is probably what you want:
+
+```bash
+DICTATE_INSERT=auto
+```
+
+Anything up to `DICTATE_TYPE_MAX_CHARS` (80) is typed, everything longer is
+pasted. Watching a one-liner type itself costs about 0.8 s at the default
+5 ms delay — imperceptible, and it reads as feedback that something happened.
+Only a long transcript makes the per-character price worth avoiding.
+
+If you would rather always type, `DICTATE_KEY_DELAY=0` is quicker still, though
+some apps drop or reorder characters that arrive with no delay between them.
 
 ## Security
 

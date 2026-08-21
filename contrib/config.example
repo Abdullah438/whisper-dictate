@@ -42,7 +42,12 @@
 #
 # "paste" is a single keystroke no matter how long the text is. It needs the
 # clipboard on, and some password and payment fields refuse paste entirely.
+#
+# "auto" types anything up to DICTATE_TYPE_MAX_CHARS and pastes the rest, which
+# is usually what you want: watching a one-liner type itself costs nothing, and
+# only a long transcript makes the per-character price worth avoiding.
 #DICTATE_INSERT=type
+#DICTATE_TYPE_MAX_CHARS=80
 
 # Which paste chord to send. shift+insert is the default because it is the one
 # combination both worlds accept: a GUI text field treats it as paste, while
@@ -52,9 +57,11 @@
 # the Markdown preview in VS Code.
 #DICTATE_PASTE_KEY=shift+insert
 
-# Typing speed, when DICTATE_INSERT=type. 0 is as fast as ydotool will go, but
-# some apps drop or reorder characters when they arrive with no delay.
-#DICTATE_KEY_DELAY=8
+# Typing speed, used whenever text is typed rather than pasted. This is both
+# the gap between keys and how long each is held, so 5 is about 10ms a
+# character. 0 is as fast as ydotool will go, but some apps drop or reorder
+# characters that arrive with no delay between them.
+#DICTATE_KEY_DELAY=5
 
 # How a line break is typed. ydotool sends a newline as Enter, and in a message
 # box Enter *sends*, so a two-line rewrite would post half of it and type the

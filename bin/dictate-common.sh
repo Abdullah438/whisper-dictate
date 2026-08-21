@@ -15,6 +15,7 @@ DICTATE_SETTINGS=(
   DICTATE_CLIPBOARD DICTATE_CONTEXT DICTATE_CONTEXT_FILE DICTATE_DICTIONARY
   DICTATE_MAX_SECONDS DICTATE_SILENCE_SECONDS DICTATE_SILENCE_LEVEL
   DICTATE_KEY_DELAY DICTATE_NEWLINE DICTATE_INSERT DICTATE_PASTE_KEY
+  DICTATE_TYPE_MAX_CHARS
   YDOTOOL_SOCKET
 )
 
@@ -110,7 +111,7 @@ dictate_type_text() {
   local text="$1"
   local scratch="$2"
   local log="${3:-/dev/null}"
-  local delay="${DICTATE_KEY_DELAY:-8}"
+  local delay="${DICTATE_KEY_DELAY:-5}"
   local mode="${DICTATE_NEWLINE:-shift-enter}"
 
   local first=1 line
@@ -160,8 +161,21 @@ dictate_insert_text() {
   local text="$1"
   local scratch="$2"
   local log="${3:-/dev/null}"
+  local mode="${DICTATE_INSERT:-type}"
 
-  if [[ "${DICTATE_INSERT:-type}" == "paste" ]] && [[ "${DICTATE_CLIPBOARD:-1}" != "0" ]]; then
+  # "auto" types a short line and pastes a long one. Typing is the nicer of the
+  # two to watch and costs nothing worth noticing on a one-liner; pasting only
+  # earns its keep once the per-character cost adds up. At the default 5ms
+  # delay and 5ms hold, DICTATE_TYPE_MAX_CHARS of 80 is about 0.8s of typing.
+  if [[ "$mode" == "auto" ]]; then
+    if [[ "${#text}" -le "${DICTATE_TYPE_MAX_CHARS:-80}" ]]; then
+      mode="type"
+    else
+      mode="paste"
+    fi
+  fi
+
+  if [[ "$mode" == "paste" ]] && [[ "${DICTATE_CLIPBOARD:-1}" != "0" ]]; then
     case "${DICTATE_PASTE_KEY:-shift+insert}" in
       ctrl+v)
         ydotool key 29:1 47:1 47:0 29:0 >>"$log" 2>&1 || true
