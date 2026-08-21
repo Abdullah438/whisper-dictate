@@ -35,6 +35,13 @@
 
 # Typing
 #DICTATE_KEY_DELAY=8
+
+# How a line break is typed. ydotool sends a newline as Enter, and in a message
+# box Enter *sends*, so a two-line rewrite would post half of it and type the
+# rest into the next message. shift-enter is the line break those apps expect
+# and behaves like Enter in a plain text field. Use "enter" if you only ever
+# dictate into editors, or "space" to join every line into one.
+#DICTATE_NEWLINE=shift-enter
 # Above this many characters, send Ctrl+V instead of typing key by key.
 # Faster and safe from editor autoindent, but Ctrl+V is not reliable in every
 # Wayland app. 0 disables it.

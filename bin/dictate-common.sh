@@ -95,3 +95,51 @@ dictate_acquire_lock() {
   fi
   return 1
 }
+
+# Type text through ydotool, one line at a time.
+#
+# `ydotool type` emits a newline as KEY_ENTER. In a message box — WhatsApp Web,
+# Slack, Discord, Telegram, most webmail reply fields — Enter *sends*, so a
+# two-line rewrite fires off half a sentence and types the remainder into the
+# next message. There is no way to ask the app which it wants, so this sends
+# Shift+Enter, the combination those apps use for a line break; a plain text
+# area or editor treats it the same as Enter, which makes it the safer default.
+#
+# DICTATE_NEWLINE=enter restores the old behaviour, =space joins the lines up.
+dictate_type_text() {
+  local text="$1"
+  local scratch="$2"
+  local log="${3:-/dev/null}"
+  local delay="${DICTATE_KEY_DELAY:-8}"
+  local mode="${DICTATE_NEWLINE:-shift-enter}"
+
+  local first=1 line
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$first" -eq 0 ]]; then
+      case "$mode" in
+        enter)
+          ydotool key 28:1 28:0 >>"$log" 2>&1 || true
+          ;;
+        space)
+          printf ' ' >"$scratch"
+          ydotool type --file "$scratch" >>"$log" 2>&1 || true
+          ;;
+        *)
+          # LeftShift down, Enter down/up, LeftShift up.
+          ydotool key 42:1 28:1 28:0 42:0 >>"$log" 2>&1 || true
+          ;;
+      esac
+    fi
+    first=0
+
+    if [[ -n "$line" ]]; then
+      printf '%s' "$line" >"$scratch"
+      chmod 600 "$scratch" 2>/dev/null || true
+      ydotool type --key-delay "$delay" --key-hold "$delay" --file "$scratch" \
+        >>"$log" 2>&1 || true
+    fi
+  done <<<"$text"
+
+  # Never leave the transcript sitting in the runtime directory.
+  rm -f "$scratch"
+}

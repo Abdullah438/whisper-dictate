@@ -187,7 +187,15 @@ those words when you did not say them.
 
 ### Rewrite selection
 
-Highlight a sentence or paragraph, then run `rewrite-selection`. The script reads the selection, rewrites it with `mistral:7b`, and types the result over the highlight. A newline in the text is typed as Enter.
+Highlight a sentence or paragraph, then run `rewrite-selection`. The script reads the selection, rewrites it with `mistral:7b`, and types the result over the highlight.
+
+Line breaks are typed as **Shift+Enter**, not Enter. In a message box — WhatsApp
+Web, Slack, Discord, Telegram, most webmail reply fields — Enter *sends*, so a
+two-line rewrite would post half a sentence and type the rest into the next
+message. Shift+Enter is the line break those apps expect, and a plain text area
+or editor treats it the same as Enter. Set `DICTATE_NEWLINE=enter` if you only
+ever type into editors, or `DICTATE_NEWLINE=space` to collapse every rewrite
+onto one line.
 
 It reads the Wayland *primary* selection, which highlighting already fills, so
 the normal path never touches your clipboard. Apps that do not export a primary
@@ -270,6 +278,7 @@ a single run.
 | `DICTATE_SILENCE_SECONDS` | `0` | Stop after this much silence; `0` disables |
 | `DICTATE_SILENCE_LEVEL` | `0` | Fixed silence RMS; `0` calibrates to your mic and voice |
 | `DICTATE_KEY_DELAY` | `8` | `ydotool` key delay, in ms |
+| `DICTATE_NEWLINE` | `shift-enter` | How a line break is typed: `shift-enter`, `enter`, `space` |
 | `DICTATE_PASTE_THRESHOLD` | `0` | Send `Ctrl+V` above this length; `0` disables |
 | `DICTATE_PRIMARY` | `1` | Rewrite reads the primary selection; `0` uses `Ctrl+C` |
 | `DICTATE_CONFIG` | `~/.config/whisper-dictate/config` | Settings file |

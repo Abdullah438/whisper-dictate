@@ -25,7 +25,6 @@ LLM_MODEL="${DICTATE_LLM_MODEL:-mistral:7b}"
 LLM_HOST="${DICTATE_LLM_HOST:-http://127.0.0.1:11434}"
 LLM_ENABLED="${DICTATE_LLM:-1}"
 CLIPBOARD_ENABLED="${DICTATE_CLIPBOARD:-1}"
-KEY_DELAY="${DICTATE_KEY_DELAY:-8}"
 PASTE_THRESHOLD="${DICTATE_PASTE_THRESHOLD:-0}"
 YDOTOOL_SOCKET="${YDOTOOL_SOCKET:-${XDG_RUNTIME_DIR:-/tmp}/.ydotool_socket}"
 POLISH_BIN="${SELF_DIR}/dictate-polish.py"
@@ -236,12 +235,7 @@ paste_text() {
     return
   fi
 
-  printf '%s' "$text" >"$paste_file"
-  chmod 600 "$paste_file" 2>/dev/null || true
-  ydotool type --key-delay "$KEY_DELAY" --key-hold "$KEY_DELAY" --file "$paste_file" \
-    >>"$paste_log" 2>&1 || true
-  # Do not leave the transcript sitting in the runtime directory.
-  rm -f "$paste_file"
+  dictate_type_text "$text" "$paste_file" "$paste_log"
 }
 
 transcribe() {
@@ -357,6 +351,7 @@ Environment:
   DICTATE_SILENCE_SECONDS  Stop after this much silence (default: 0, off)
   DICTATE_SILENCE_LEVEL    Fixed silence RMS; 0 (default) calibrates to the room
   DICTATE_KEY_DELAY   ydotool key delay in ms (default: 8)
+  DICTATE_NEWLINE     How a line break is typed: shift-enter (default), enter, space
   DICTATE_PASTE_THRESHOLD  Type with Ctrl+V above this length (default: 0, off)
 EOF
 }
