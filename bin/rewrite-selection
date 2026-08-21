@@ -130,9 +130,9 @@ Environment:
   DICTATE_LLM_MODEL   Ollama model (default: mistral:7b)
   DICTATE_LLM_HOST    Ollama host (default: http://127.0.0.1:11434)
   DICTATE_PRIMARY     1 to read the primary selection first (default), 0 for Ctrl+C only
-  DICTATE_KEY_DELAY   ydotool key delay in ms (default: 8)
+  DICTATE_KEY_DELAY   ydotool key delay and hold, in ms (default: 5)
   DICTATE_NEWLINE     shift-enter (default), enter, or space
-  DICTATE_INSERT      type (default) or paste
+  DICTATE_INSERT      type (default), paste, or auto
   DICTATE_PASTE_KEY   ctrl+v (default) or ctrl+shift+v
   YDOTOOL_SOCKET      ydotool socket
 EOF

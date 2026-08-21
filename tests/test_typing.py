@@ -160,3 +160,49 @@ def test_paste_never_types_the_text(inserter):
     """A stray type call would double-insert the transcript."""
     calls = inserter("secret words\nsecond line", DICTATE_INSERT="paste")
     assert not any(c.startswith("type") for c in calls)
+
+
+# "auto" types a short line and pastes a long one: typing is the better thing
+# to watch, but its cost scales with length and pasting's does not.
+def test_auto_types_a_short_line(inserter):
+    calls = inserter("Sounds good to me.", DICTATE_INSERT="auto")
+    assert calls == ["type Sounds good to me."]
+
+
+def test_auto_pastes_a_long_one(inserter):
+    long = "word " * 60
+    calls = inserter(long, DICTATE_INSERT="auto")
+    assert calls == [SET_PRIMARY, SHIFT_INSERT]
+
+
+def test_auto_switches_exactly_at_the_threshold(inserter):
+    at = "x" * 80
+    over = "x" * 81
+    assert inserter(at, DICTATE_INSERT="auto", DICTATE_TYPE_MAX_CHARS="80") == [f"type {at}"]
+    assert inserter(over, DICTATE_INSERT="auto", DICTATE_TYPE_MAX_CHARS="80") == [
+        SET_PRIMARY, SHIFT_INSERT
+    ]
+
+
+def test_the_threshold_is_configurable(inserter):
+    text = "x" * 30
+    assert inserter(text, DICTATE_INSERT="auto", DICTATE_TYPE_MAX_CHARS="10") == [
+        SET_PRIMARY, SHIFT_INSERT
+    ]
+    assert inserter(text, DICTATE_INSERT="auto", DICTATE_TYPE_MAX_CHARS="200") == [f"type {text}"]
+
+
+def test_auto_still_types_when_the_clipboard_is_off(inserter):
+    """Pasting needs the clipboard; without it, length cannot change the answer."""
+    long = "word " * 60
+    calls = inserter(long, DICTATE_INSERT="auto", DICTATE_CLIPBOARD="0")
+    assert calls == [f"type {long.strip()}"] or calls[0].startswith("type")
+    assert not any(c.startswith("key") for c in calls)
+
+
+def test_explicit_modes_ignore_the_threshold(inserter):
+    """type and paste stay absolute — only auto looks at length."""
+    long = "word " * 60
+    assert inserter(long, DICTATE_INSERT="paste") == [SET_PRIMARY, SHIFT_INSERT]
+    assert inserter("hi", DICTATE_INSERT="paste") == [SET_PRIMARY, SHIFT_INSERT]
+    assert inserter(long, DICTATE_INSERT="type")[0].startswith("type")

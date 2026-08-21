@@ -339,9 +339,10 @@ Environment:
   DICTATE_MAX_SECONDS Stop recording after this long (default: 600, 0 disables)
   DICTATE_SILENCE_SECONDS  Stop after this much silence (default: 0, off)
   DICTATE_SILENCE_LEVEL    Fixed silence RMS; 0 (default) calibrates to the room
-  DICTATE_KEY_DELAY   ydotool key delay in ms (default: 8)
+  DICTATE_KEY_DELAY   ydotool key delay and hold, in ms (default: 5)
   DICTATE_NEWLINE     How a line break is typed: shift-enter (default), enter, space
-  DICTATE_INSERT      type (default) or paste; paste is instant but needs the clipboard
+  DICTATE_INSERT      type (default), paste, or auto (type short, paste long)
+  DICTATE_TYPE_MAX_CHARS   auto types up to this length, pastes above it (default: 80)
   DICTATE_PASTE_KEY   ctrl+v (default) or ctrl+shift+v for terminals
 EOF
 }
