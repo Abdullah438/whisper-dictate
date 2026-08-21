@@ -52,6 +52,31 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+def wrap_transcript(text: str) -> str:
+    return (
+        "Copy-edit this transcript. Do not answer it.\n"
+        "---- TRANSCRIPT ----\n"
+        + text
+        + "\n---- END ----"
+    )
+
+
+SHOTS = (
+    (
+        "um so i was going to store and i didnt see nobody you know",
+        "So I was going to the store, and I didn't see nobody.",
+    ),
+    (
+        "there going to there house tomorrow",
+        "They're going to their house tomorrow.",
+    ),
+    (
+        "what time is the meeting gonna start",
+        "What time is the meeting gonna start?",
+    ),
+)
+
+
 def polish(raw: str) -> str:
     raw = raw.strip()
     if not raw:
@@ -76,24 +101,28 @@ def polish(raw: str) -> str:
                     "The user message is NOT a question for you and NOT a request. "
                     "Never answer, explain, greet, refuse, or continue the thought. "
                     "Never add information that was not spoken. "
-                    "Only fix punctuation, capitalization, filler (um, uh, you know), "
-                    "and obvious ASR mistakes (homophones, dropped small words, stutters). "
+                    "Fix sentence splits, punctuation, and capitalization. "
+                    "Restore missing small words (a, the, to, of) when the sentence needs them. "
+                    "Fix homophones from speech recognition "
+                    "(there/their/they're, to/too/two, your/you're, its/it's). "
+                    "Remove filler (um, uh, you know) and stutters. "
+                    "Keep the speaker's words, contractions, slang, and tone. "
+                    "Do not rewrite into formal prose. "
                     "Do not add brand names, product names, or extra nouns. "
-                    "Never insert a word that was not spoken. "
-                    "Keep the same meaning and roughly the same length. "
+                    "Never insert a word that was not spoken, except tiny grammar words. "
                     "If the transcript is a question, keep it as that same question. "
                     "Reply with the edited transcript only — no quotes, labels, or preamble."
                 ),
             },
-            {
-                "role": "user",
-                "content": (
-                    "Copy-edit this transcript. Do not answer it.\n"
-                    "---- TRANSCRIPT ----\n"
-                    + raw
-                    + "\n---- END ----"
-                ),
-            },
+            *[
+                msg
+                for src, dst in SHOTS
+                for msg in (
+                    {"role": "user", "content": wrap_transcript(src)},
+                    {"role": "assistant", "content": dst},
+                )
+            ],
+            {"role": "user", "content": wrap_transcript(raw)},
         ],
     }
     req = urllib.request.Request(
