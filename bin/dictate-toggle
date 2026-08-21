@@ -139,7 +139,7 @@ paste_text() {
     return
   fi
 
-  # Drop leftover Ctrl+Shift+/ so typed keys are not eaten by the shortcut chord.
+  # Drop leftover Ctrl+? (Shift+/) so typed keys are not eaten by the shortcut chord.
   ydotool key 125:0 126:0 56:0 100:0 29:0 97:0 42:0 54:0 53:0 >>"$paste_log" 2>&1 || true
   sleep 0.2
 

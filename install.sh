@@ -64,7 +64,7 @@ echo "  1. Install whisper.cpp (whisper-cli), PipeWire pw-cat, ydotool, notify-s
 echo "     python-gobject, and gtk3."
 echo "  2. Download a ggml model into ${MODEL_DIR}"
 echo "     Recommended: ggml-large-v3-turbo.bin"
-echo "  3. Dictation shortcut: bind ${DESKTOP_ID} (Ctrl+Shift+/)."
+echo "  3. Dictation shortcut: bind ${DESKTOP_ID} (Ctrl+?)."
 echo "  4. Rewrite shortcut: bind ${REWRITE_DESKTOP_ID} (Meta+Alt+R)."
 echo "     Select text, then press the shortcut."
 echo "  5. Optional LLM: install Ollama, pull mistral:7b, then:"
