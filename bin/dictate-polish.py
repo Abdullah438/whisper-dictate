@@ -52,13 +52,87 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def wrap_transcript(text: str) -> str:
-    return (
-        "Copy-edit this transcript. Do not answer it.\n"
-        "---- TRANSCRIPT ----\n"
-        + text
-        + "\n---- END ----"
-    )
+MAX_RECENT = 4
+MAX_RECENT_CHARS = 500
+
+
+def context_enabled() -> bool:
+    return os.environ.get("DICTATE_CONTEXT", "1") != "0"
+
+
+def context_path() -> str:
+    explicit = os.environ.get("DICTATE_CONTEXT_FILE", "").strip()
+    if explicit:
+        return explicit
+    runtime = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+    return os.path.join(runtime, "whisper-dictate", "recent.json")
+
+
+def load_recent() -> list[str]:
+    if not context_enabled():
+        return []
+    path = context_path()
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return []
+    if not isinstance(data, list):
+        return []
+    out: list[str] = []
+    for item in data[-MAX_RECENT:]:
+        if isinstance(item, str):
+            text = " ".join(item.split())
+            if text:
+                out.append(text[:MAX_RECENT_CHARS])
+    return out
+
+
+def remember_recent(text: str) -> None:
+    if not context_enabled():
+        return
+    text = " ".join(text.split())
+    if not text:
+        return
+    path = context_path()
+    os.makedirs(os.path.dirname(path) or ".", mode=0o700, exist_ok=True)
+    items = load_recent()
+    items.append(text[:MAX_RECENT_CHARS])
+    items = items[-MAX_RECENT:]
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(items, fh, ensure_ascii=False)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+
+
+def wrap_transcript(text: str, recent: list[str] | None = None) -> str:
+    parts = ["Copy-edit this transcript. Do not answer it."]
+    if recent:
+        parts.append(
+            "Recent dictations are background only: names, spellings, and what the speaker was talking about."
+        )
+        parts.append("Edit the current transcript only. Do not copy, merge, or continue the recent lines.")
+        parts.append("---- RECENT ----")
+        for i, prev in enumerate(recent, 1):
+            parts.append(f"{i}. {prev}")
+        parts.append("---- END RECENT ----")
+    parts.append("---- TRANSCRIPT ----")
+    parts.append(text)
+    parts.append("---- END ----")
+    return "\n".join(parts)
+
+
+def prior_leak(raw: str, text: str, recent: list[str]) -> bool:
+    raw_l = " ".join(words(raw))
+    out_l = " ".join(words(text))
+    for prev in recent:
+        pw = words(prev)
+        for i in range(0, max(0, len(pw) - 5)):
+            phrase = " ".join(pw[i : i + 6])
+            if phrase and phrase in out_l and phrase not in raw_l:
+                return True
+    return False
 
 
 SHOTS = (
@@ -103,12 +177,17 @@ def polish(raw: str) -> str:
     if not allow_remote and not host_is_local(host):
         return raw
 
+    recent = load_recent()
     model = os.environ.get("LLM_MODEL", "mistral:7b")
     payload = {
         "model": model,
         "stream": False,
         "keep_alive": -1,
-        "options": {"temperature": 0.0, "num_predict": 1024, "num_ctx": 2048},
+        "options": {
+            "temperature": 0.0,
+            "num_predict": 1024,
+            "num_ctx": 4096 if recent else 2048,
+        },
         "messages": [
             {
                 "role": "system",
@@ -130,6 +209,9 @@ def polish(raw: str) -> str:
                     "Do not add brand names, product names, or extra nouns. "
                     "Never insert a word that was not spoken, except tiny grammar words. "
                     "Do not drop clauses such as I know, I think, or you said. "
+                    "If recent dictations are provided, use them only to resolve names, "
+                    "spellings, and the topic the speaker is in the middle of. "
+                    "The output must be the current transcript only — never splice in a previous line. "
                     "If the transcript is a question, keep it as that same question. "
                     "Reply with the edited transcript only — no quotes, labels, or preamble."
                 ),
@@ -142,7 +224,7 @@ def polish(raw: str) -> str:
                     {"role": "assistant", "content": dst},
                 )
             ],
-            {"role": "user", "content": wrap_transcript(raw)},
+            {"role": "user", "content": wrap_transcript(raw, recent)},
         ],
     }
     req = urllib.request.Request(
@@ -187,7 +269,7 @@ def polish(raw: str) -> str:
     )
     too_long = len(text) > max(len(raw) * 1.5, len(raw) + 80)
     too_new = len(raw_words) >= 4 and overlap < 0.4
-    if not text or too_long or too_new or pronoun_drift(raw, text):
+    if not text or too_long or too_new or pronoun_drift(raw, text) or prior_leak(raw, text, recent):
         return raw
     text = drop_unprompted(raw, text, SPOKEN_OLLAMA, "Ollama")
     return text
@@ -197,6 +279,9 @@ def main() -> int:
     raw = sys.stdin.read()
     if "--nouns" in sys.argv[1:]:
         sys.stdout.write(fix_nouns(raw))
+        return 0
+    if "--remember" in sys.argv[1:]:
+        remember_recent(raw)
         return 0
     sys.stdout.write(polish(raw))
     return 0
