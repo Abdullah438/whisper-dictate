@@ -1,14 +1,25 @@
 #!/usr/bin/env bash
 # Copy the current selection, rewrite it with Mistral, type it back in place.
+# shellcheck source-path=SCRIPTDIR
 set -euo pipefail
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ ! -r "$SELF_DIR/dictate-common.sh" ]]; then
+  echo "rewrite-selection: missing $SELF_DIR/dictate-common.sh" >&2
+  exit 1
+fi
+# shellcheck source=dictate-common.sh
+source "$SELF_DIR/dictate-common.sh"
 
 STATE_DIR="${XDG_RUNTIME_DIR:-/tmp}/whisper-dictate"
 LLM_MODEL="${DICTATE_LLM_MODEL:-mistral:7b}"
 LLM_HOST="${DICTATE_LLM_HOST:-http://127.0.0.1:11434}"
+KEY_DELAY="${DICTATE_KEY_DELAY:-8}"
+USE_PRIMARY="${DICTATE_PRIMARY:-1}"
 YDOTOOL_SOCKET="${YDOTOOL_SOCKET:-${XDG_RUNTIME_DIR:-/tmp}/.ydotool_socket}"
-SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REWRITE_BIN="${SELF_DIR}/rewrite-text.py"
 LOCKDIR="$STATE_DIR/rewrite.lock.d"
+LOG="$STATE_DIR/rewrite.log"
 export YDOTOOL_SOCKET
 export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
 export DISPLAY="${DISPLAY:-:0}"
@@ -32,17 +43,15 @@ notify() {
 }
 
 release_modifiers() {
-  # Super, Alt, Ctrl, Shift, and R from Meta+Alt+R.
-  ydotool key 125:0 126:0 56:0 100:0 29:0 97:0 42:0 54:0 19:0 \
-    >>"$STATE_DIR/rewrite.log" 2>&1 || true
+  # Drop any modifier still held from the shortcut chord before sending keys.
+  ydotool key 29:0 42:0 54:0 56:0 97:0 100:0 125:0 126:0 >>"$LOG" 2>&1 || true
 }
 
-copy_selection() {
-  release_modifiers
-  sleep 0.15
-  # LeftCtrl down, C down/up, LeftCtrl up
-  ydotool key 29:1 46:1 46:0 29:0 >>"$STATE_DIR/rewrite.log" 2>&1 || true
-  sleep 0.25
+read_primary() {
+  # On Wayland, highlighting text already fills the primary selection, so the
+  # normal path needs no synthetic Ctrl+C and never touches the clipboard.
+  [[ "$USE_PRIMARY" != "0" ]] || return 0
+  wl-paste --primary --no-newline --type text/plain 2>/dev/null || true
 }
 
 read_clipboard() {
@@ -54,19 +63,61 @@ read_clipboard() {
   printf '%s' "$text"
 }
 
+clipboard_clear() {
+  # Both backends, because read_clipboard consults both.
+  wl-copy --clear >>"$LOG" 2>&1 || true
+  qdbus6 org.kde.klipper /klipper org.kde.klipper.klipper.clearClipboardContents \
+    >>"$LOG" 2>&1 || true
+}
+
+set_clipboard() {
+  qdbus6 org.kde.klipper /klipper org.kde.klipper.klipper.setClipboardContents "$1" \
+    >>"$LOG" 2>&1 || true
+  printf '%s' "$1" | wl-copy --type text/plain >>"$LOG" 2>&1 || true
+}
+
+# Ctrl+C fallback for apps that do not export a primary selection.
+#
+# The clipboard is emptied first. Otherwise a copy that never lands — the app
+# ignores Ctrl+C, or the keystroke loses the race — leaves the *previous*
+# clipboard in place, and the script types that over the highlighted text.
+copy_selection() {
+  local previous=""
+  previous="$(read_clipboard)"
+
+  release_modifiers
+  sleep 0.15
+  clipboard_clear
+  # LeftCtrl down, C down/up, LeftCtrl up
+  ydotool key 29:1 46:1 46:0 29:0 >>"$LOG" 2>&1 || true
+
+  local text=""
+  local _
+  for _ in $(seq 1 12); do
+    sleep 0.05
+    text="$(read_clipboard)"
+    [[ -n "${text//[[:space:]]/}" ]] && break
+  done
+
+  if [[ -z "${text//[[:space:]]/}" ]] && [[ -n "$previous" ]]; then
+    set_clipboard "$previous"
+  fi
+  printf '%s' "$text"
+}
+
 type_text() {
   local text="$1"
   local paste_file="$STATE_DIR/rewrite.txt"
   release_modifiers
   sleep 0.2
-  qdbus6 org.kde.klipper /klipper org.kde.klipper.klipper.setClipboardContents "$text" \
-    >>"$STATE_DIR/rewrite.log" 2>&1 || true
-  printf '%s' "$text" | wl-copy --type text/plain >>"$STATE_DIR/rewrite.log" 2>&1 || true
+  set_clipboard "$text"
 
   # Same path as dictation: ydotool types the file, and a newline is Enter.
   printf '%s' "$text" >"$paste_file"
   chmod 600 "$paste_file" 2>/dev/null || true
-  ydotool type --key-delay 8 --key-hold 8 --file "$paste_file" >>"$STATE_DIR/rewrite.log" 2>&1 || true
+  ydotool type --key-delay "$KEY_DELAY" --key-hold "$KEY_DELAY" --file "$paste_file" \
+    >>"$LOG" 2>&1 || true
+  rm -f "$paste_file"
 }
 
 case "${1:-}" in
@@ -75,14 +126,19 @@ case "${1:-}" in
 rewrite-selection — rewrite highlighted text with a local Mistral model
 
 Usage:
-  rewrite-selection        Copy selection, rewrite, type replacement
+  rewrite-selection        Read the selection, rewrite, type the replacement
   rewrite-selection --help
 
 Select text first, then run this script (or your rewrite shortcut).
 
+Settings are read from ~/.config/whisper-dictate/config; an environment
+variable of the same name overrides the file.
+
 Environment:
   DICTATE_LLM_MODEL   Ollama model (default: mistral:7b)
   DICTATE_LLM_HOST    Ollama host (default: http://127.0.0.1:11434)
+  DICTATE_PRIMARY     1 to read the primary selection first (default), 0 for Ctrl+C only
+  DICTATE_KEY_DELAY   ydotool key delay in ms (default: 8)
   YDOTOOL_SOCKET      ydotool socket
 EOF
     exit 0
@@ -99,14 +155,17 @@ if [[ ! -f "$REWRITE_BIN" ]]; then
   exit 1
 fi
 
-if ! mkdir "$LOCKDIR" 2>/dev/null; then
+if ! dictate_acquire_lock "$LOCKDIR"; then
   notify "Rewrite" "Busy — ignored extra keypress."
   exit 0
 fi
-trap 'rmdir "$LOCKDIR" 2>/dev/null || true' EXIT
+trap 'rm -rf "$LOCKDIR" 2>/dev/null || true' EXIT
 
-copy_selection
-raw="$(read_clipboard)"
+: >"$LOG"
+raw="$(read_primary)"
+if [[ -z "${raw//[[:space:]]/}" ]]; then
+  raw="$(copy_selection)"
+fi
 raw="${raw//$'\r'/}"
 
 if [[ -z "${raw//[[:space:]]/}" ]]; then
