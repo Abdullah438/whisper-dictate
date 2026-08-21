@@ -155,13 +155,18 @@ recording for you:
 ```bash
 DICTATE_MAX_SECONDS=600      # hard cap, on by default
 DICTATE_SILENCE_SECONDS=2.5  # stop after this much silence, off by default
-DICTATE_SILENCE_LEVEL=350    # RMS below which audio counts as silence
 ```
 
-Silence only counts once you have actually started speaking, so a slow start
-does not cut the recording short. Raise `DICTATE_SILENCE_LEVEL` in a noisy room;
-lower it if a recording keeps running after you stop. `dictate-toggle --cancel`
-(or **Cancel and discard** in the tray) drops a recording without typing it.
+What counts as silence is calibrated while you speak, against the quietest and
+loudest stretches of that recording. There is no usable fixed number: microphone
+gain differs by an order of magnitude between machines, so any constant is
+either deaf on a quiet mic or permanently triggered in a noisy room. Silence
+also only counts once you have actually started speaking, so a slow start does
+not cut the recording short.
+
+Set `DICTATE_SILENCE_LEVEL` to a fixed RMS if the calibration guesses wrong for
+you. `dictate-toggle --cancel` (or **Cancel and discard** in the tray) drops a
+recording without typing it.
 
 ### Personal dictionary
 
@@ -263,7 +268,7 @@ a single run.
 | `DICTATE_DICTIONARY` | `~/.config/whisper-dictate/dictionary` | Spoken-word replacements |
 | `DICTATE_MAX_SECONDS` | `600` | Stop recording after this long; `0` disables |
 | `DICTATE_SILENCE_SECONDS` | `0` | Stop after this much silence; `0` disables |
-| `DICTATE_SILENCE_LEVEL` | `350` | RMS below which audio counts as silence |
+| `DICTATE_SILENCE_LEVEL` | `0` | Fixed silence RMS; `0` calibrates to your mic and voice |
 | `DICTATE_KEY_DELAY` | `8` | `ydotool` key delay, in ms |
 | `DICTATE_PASTE_THRESHOLD` | `0` | Send `Ctrl+V` above this length; `0` disables |
 | `DICTATE_PRIMARY` | `1` | Rewrite reads the primary selection; `0` uses `Ctrl+C` |

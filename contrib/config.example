@@ -24,9 +24,14 @@
 #DICTATE_MAX_SECONDS=600
 
 # Hands-free stop: end the recording after this many seconds of silence.
-# 0 disables it. Try 2.5 with DICTATE_SILENCE_LEVEL around 350.
+# 0 disables it. 2.5 is a good starting point.
 #DICTATE_SILENCE_SECONDS=0
-#DICTATE_SILENCE_LEVEL=350
+
+# What counts as silence. Left at 0, it calibrates against your own microphone
+# and voice as the recording runs, which is what you want: usable absolute
+# levels differ by an order of magnitude between machines. Set a number here
+# only if that guesses wrong for you.
+#DICTATE_SILENCE_LEVEL=0
 
 # Typing
 #DICTATE_KEY_DELAY=8

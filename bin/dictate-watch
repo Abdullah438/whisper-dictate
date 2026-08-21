@@ -18,9 +18,18 @@ RATE = 16000
 BYTES_PER_SAMPLE = 2
 WAV_HEADER = 44
 POLL_SECONDS = 0.25
-# Silence only counts once the speaker has actually said something, so a slow
-# start does not stop the recording before it begins.
-SPEECH_LEVEL_MARGIN = 2.0
+
+# Levels are calibrated against this recording rather than fixed, because a
+# usable absolute threshold does not exist: microphone gain differs by an order
+# of magnitude between machines, so any constant is either deaf on a quiet mic
+# or permanently triggered in a noisy room.
+SPEECH_OVER_FLOOR = 4.0     # the speaker must beat the quiet floor by this much
+MIN_SPEECH_RMS = 150.0      # ...and be audible in absolute terms, so a silent
+                            #    recording is never mistaken for speech
+SILENCE_OF_PEAK = 0.15      # quiet, relative to how loud the speaker actually was
+SILENCE_OVER_FLOOR = 1.6    # ...or back down near the quietest stretch heard
+MAX_SILENCE_OF_PEAK = 0.35  # ceiling for the above, for someone who starts
+                            #    talking immediately and leaves no quiet floor
 
 
 def state_dir() -> str:
@@ -96,34 +105,55 @@ def tail_rms(wav: str, seconds: float) -> float | None:
     return None if chunk is None else rms(chunk)
 
 
-def fresh_rms(wav: str, cursor: int) -> tuple[float | None, int]:
-    """RMS of everything recorded since `cursor`, and the new cursor.
-
-    Speech has to be looked for across all of the audio, not just the trailing
-    window: the window the silence check reads is silent by definition, so it
-    can never be the thing that proves the speaker started.
-    """
-    try:
-        size = os.path.getsize(wav)
-    except OSError:
-        return None, cursor
-    start = max(cursor, WAV_HEADER)
-    if size < start:  # a new recording reused the file
-        return None, WAV_HEADER
-    length = ((size - start) // BYTES_PER_SAMPLE) * BYTES_PER_SAMPLE
-    if length <= 0:
-        return None, start
-    chunk = read_at(wav, start, length)
-    if chunk is None:
-        return None, start
-    return rms(chunk), start + length
-
-
 def duration(wav: str) -> float:
     try:
         return max(0.0, (os.path.getsize(wav) - WAV_HEADER) / (RATE * BYTES_PER_SAMPLE))
     except OSError:
         return 0.0
+
+
+class SilenceDetector:
+    """Decides when the speaker has stopped, calibrating as the recording runs.
+
+    `floor` is the quietest window heard so far and `peak` the loudest, so the
+    thresholds land between this room and this voice instead of between two
+    numbers picked on someone else's hardware.
+    """
+
+    def __init__(self, absolute: float = 0.0) -> None:
+        self.absolute = absolute
+        self.floor: float | None = None
+        self.peak = 0.0
+        self.heard_speech = False
+
+    def threshold(self) -> float:
+        if self.absolute > 0:
+            return self.absolute
+        floor = self.floor if self.floor is not None else 0.0
+        # Capped at a fraction of the peak: someone who starts talking at once
+        # leaves no quiet floor, and an uncapped threshold would then sit above
+        # their own voice and report silence immediately.
+        return min(
+            max(self.peak * SILENCE_OF_PEAK, floor * SILENCE_OVER_FLOOR),
+            self.peak * MAX_SILENCE_OF_PEAK,
+        )
+
+    def speech_threshold(self) -> float:
+        if self.absolute > 0:
+            return self.absolute * 2
+        floor = self.floor if self.floor is not None else 0.0
+        return max(floor * SPEECH_OVER_FLOOR, MIN_SPEECH_RMS)
+
+    def feed(self, level: float) -> bool:
+        """Take one reading of the trailing window; True means stop recording."""
+        self.floor = level if self.floor is None else min(self.floor, level)
+        self.peak = max(self.peak, level)
+        if self.peak >= self.speech_threshold():
+            self.heard_speech = True
+        # Before the speaker starts, quiet is just quiet.
+        if not self.heard_speech:
+            return False
+        return level <= self.threshold()
 
 
 def stop(reason: str) -> None:
@@ -144,13 +174,14 @@ def main() -> int:
 
     max_seconds = env_float("DICTATE_MAX_SECONDS", 600.0)
     silence_seconds = env_float("DICTATE_SILENCE_SECONDS", 0.0)
-    silence_level = env_float("DICTATE_SILENCE_LEVEL", 350.0)
+    # 0 keeps the adaptive thresholds. A positive value pins them, for a setup
+    # where the calibration guesses wrong and a fixed number is easier.
+    silence_level = env_float("DICTATE_SILENCE_LEVEL", 0.0)
 
     if max_seconds <= 0 and silence_seconds <= 0:
         return 0
 
-    heard_speech = False
-    cursor = WAV_HEADER
+    detector = SilenceDetector(absolute=silence_level)
     while True:
         time.sleep(POLL_SECONDS)
         if not recorder_alive(pidfile):
@@ -163,14 +194,8 @@ def main() -> int:
         if silence_seconds <= 0:
             continue
 
-        level, cursor = fresh_rms(wav, cursor)
-        if level is not None and level >= silence_level * SPEECH_LEVEL_MARGIN:
-            heard_speech = True
-        if not heard_speech:
-            continue
-
-        tail = tail_rms(wav, silence_seconds)
-        if tail is not None and tail < silence_level:
+        level = tail_rms(wav, silence_seconds)
+        if level is not None and detector.feed(level):
             stop("silence")
             return 0
 

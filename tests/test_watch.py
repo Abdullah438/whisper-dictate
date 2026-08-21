@@ -8,6 +8,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import threading
 import time
 
 BIN = pathlib.Path(__file__).resolve().parent.parent / "bin"
@@ -92,12 +93,32 @@ LOUD = [6000 if i % 2 else -6000 for i in range(16000)]
 QUIET = [0] * 32000
 
 
+def grow_wav(path, chunks, interval=0.1):
+    """Append audio over time, the way pw-cat writes while recording."""
+
+    def run():
+        for chunk in chunks:
+            with open(path, "ab") as fh:
+                fh.write(array.array("h", chunk).tobytes())
+            time.sleep(interval)
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    return thread
+
+
+CHUNK_LOUD = [6000 if i % 2 else -6000 for i in range(4000)]
+CHUNK_QUIET = [0] * 4000
+
+
 def test_stops_once_the_speaker_goes_quiet(tmp_path):
     state = tmp_path / "run" / "whisper-dictate"
     state.mkdir(parents=True)
-    write_wav(state / "dictation.wav", LOUD + QUIET)
+    wav = state / "dictation.wav"
+    write_wav(wav, [])
     recorder = fake_recorder(tmp_path)
     (state / "record.pid").write_text(str(recorder.pid))
+    grow_wav(wav, [CHUNK_QUIET] * 4 + [CHUNK_LOUD] * 8 + [CHUNK_QUIET] * 20)
     try:
         assert run_watcher(staged_watcher(tmp_path), tmp_path / "run",
                            DICTATE_SILENCE_SECONDS="1.0")
@@ -138,24 +159,54 @@ def test_exits_when_the_recording_ends(tmp_path):
                            DICTATE_SILENCE_SECONDS="0.5")
 
 
-def test_fresh_rms_advances_its_cursor(watch_mod, tmp_path):
-    wav = write_wav(tmp_path / "f.wav", [0] * 16000)
-    level, cursor = watch_mod.fresh_rms(wav, watch_mod.WAV_HEADER)
-    assert level == 0.0
-    assert cursor == watch_mod.WAV_HEADER + 32000
-    # Nothing new yet.
-    assert watch_mod.fresh_rms(wav, cursor) == (None, cursor)
+def feed_all(detector, levels):
+    """Returns the index of the reading that ends the recording, or None."""
+    for i, level in enumerate(levels):
+        if detector.feed(level):
+            return i
+    return None
 
 
-def test_fresh_rms_sees_speech_the_tail_window_would_miss(watch_mod, tmp_path):
-    """Loud at the start, silent at the end — the trailing window reads 0."""
-    wav = write_wav(tmp_path / "g.wav", LOUD + QUIET)
-    level, _ = watch_mod.fresh_rms(wav, watch_mod.WAV_HEADER)
-    assert level is not None and level > 700
-    assert watch_mod.tail_rms(wav, 1.0) == 0.0
+def test_detector_stops_after_a_quiet_room_a_voice_and_a_pause(watch_mod):
+    d = watch_mod.SilenceDetector()
+    assert feed_all(d, [20, 20, 4000, 5000, 4500, 20]) == 5
 
 
-def test_fresh_rms_resets_when_the_file_is_reused(watch_mod, tmp_path):
-    wav = write_wav(tmp_path / "h.wav", [0] * 800)
-    _level, cursor = watch_mod.fresh_rms(wav, watch_mod.WAV_HEADER + 10_000_000)
-    assert cursor == watch_mod.WAV_HEADER
+def test_detector_keeps_going_while_the_voice_is_still_there(watch_mod):
+    d = watch_mod.SilenceDetector()
+    assert feed_all(d, [20, 4000, 5000, 3000, 4500, 3500]) is None
+
+
+def test_detector_ignores_silence_before_the_speaker_starts(watch_mod):
+    d = watch_mod.SilenceDetector()
+    assert feed_all(d, [0, 0, 0, 5, 0, 2]) is None
+
+
+def test_detector_calibrates_to_a_noisy_room(watch_mod):
+    """A level that is speech on a quiet mic is only room noise on a loud one."""
+    d = watch_mod.SilenceDetector()
+    # Floor of 900: 1200 is not four times over it, so it is not a voice.
+    assert feed_all(d, [900, 1200, 1100, 950, 1000]) is None
+    loud = watch_mod.SilenceDetector()
+    assert feed_all(loud, [900, 1200, 6000, 5500, 900]) is not None
+
+
+def test_detector_survives_someone_who_starts_talking_immediately(watch_mod):
+    """No quiet floor is ever recorded, so the threshold must cap to the peak."""
+    d = watch_mod.SilenceDetector()
+    assert feed_all(d, [5000, 6000, 5500]) is None
+    assert d.feed(100)
+
+
+def test_detector_never_hears_speech_in_a_silent_recording(watch_mod):
+    d = watch_mod.SilenceDetector()
+    assert feed_all(d, [0] * 10) is None
+    assert not d.heard_speech
+
+
+def test_detector_absolute_override_pins_the_threshold(watch_mod):
+    d = watch_mod.SilenceDetector(absolute=350.0)
+    # Speech has to clear 700, and silence is anything at or under 350.
+    assert feed_all(d, [400, 500, 600]) is None
+    assert feed_all(d, [800, 900]) is None
+    assert d.feed(300)

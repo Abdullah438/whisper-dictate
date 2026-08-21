@@ -355,7 +355,7 @@ Environment:
   DICTATE_DICTIONARY  Spoken-word replacements (default: ~/.config/whisper-dictate/dictionary)
   DICTATE_MAX_SECONDS Stop recording after this long (default: 600, 0 disables)
   DICTATE_SILENCE_SECONDS  Stop after this much silence (default: 0, off)
-  DICTATE_SILENCE_LEVEL    RMS below which audio counts as silence (default: 350)
+  DICTATE_SILENCE_LEVEL    Fixed silence RMS; 0 (default) calibrates to the room
   DICTATE_KEY_DELAY   ydotool key delay in ms (default: 8)
   DICTATE_PASTE_THRESHOLD  Type with Ctrl+V above this length (default: 0, off)
 EOF
