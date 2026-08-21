@@ -273,3 +273,33 @@ def test_recent_dictations_are_not_mentioned_when_there_are_none(
     opener = fake_ollama("Fine.")
     polish_mod.polish("this is a line with several words in it")
     assert "recent dictation" in opener.payload["messages"][0]["content"].lower()
+
+
+def test_a_line_break_in_the_reply_is_refused(polish_mod, fake_ollama):
+    """clean_text hands polish a single line, so a break is the model's invention.
+
+    It matters more than it looks: with DICTATE_NEWLINE=shift-enter that break
+    is typed out, and in a message box it splits what you said in two.
+    """
+    raw = "hmm what about this"
+    fake_ollama('Actually, what about this:\n\n"Hmm, what about this?')
+    assert polish_mod.polish(raw) == raw
+
+
+def test_a_restatement_with_a_dangling_quote_is_refused(polish_mod, fake_ollama):
+    raw = "ship the parser fix tomorrow"
+    fake_ollama('Ship the parser fix tomorrow. "As in')
+    assert polish_mod.polish(raw) == raw
+
+
+def test_a_balanced_quotation_is_kept(polish_mod, fake_ollama):
+    """Only unmatched quotes are suspicious — quoting speech is normal."""
+    raw = "he said hello there and left"
+    fake_ollama('He said "hello there" and left.')
+    assert polish_mod.polish(raw) == 'He said "hello there" and left.'
+
+
+def test_curly_quotes_must_match_too(polish_mod, fake_ollama):
+    raw = "she told me to wait outside"
+    fake_ollama("She told me “wait outside.")
+    assert polish_mod.polish(raw) == raw

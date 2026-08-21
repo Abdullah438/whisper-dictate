@@ -81,6 +81,11 @@ SHOTS = (
 )
 
 
+def unbalanced_quotes(text: str) -> bool:
+    """An odd quote count means the model wrapped part of the text and stopped."""
+    return text.count('"') % 2 == 1 or text.count("\u201c") != text.count("\u201d")
+
+
 def pronoun_drift(raw: str, text: str) -> bool:
     raw_w = words(raw)
     out_w = words(text)
@@ -198,7 +203,14 @@ def rewrite(raw: str) -> str:
     too_new = len(raw_words) >= 6 and overlap < 0.45
     # A copy-edit must not quietly shorten a long selection by half.
     too_short = len(raw_words) >= 40 and len(out_words) < len(raw_words) * MIN_KEPT_WORDS
-    if not text or too_long or too_short or too_new or pronoun_drift(raw, text):
+    if (
+        not text
+        or too_long
+        or too_short
+        or too_new
+        or unbalanced_quotes(text)
+        or pronoun_drift(raw, text)
+    ):
         return raw
     return align_line_breaks(raw, text)
 
