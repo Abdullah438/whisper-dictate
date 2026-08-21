@@ -23,6 +23,24 @@ def words(s: str) -> list[str]:
     return [w for w in re.findall(r"[a-z0-9']+", s.lower()) if w]
 
 
+def drop_trailing_aside(raw: str, text: str) -> str:
+    """Remove a bracketed note the model appended that was not in the source.
+
+    It passes the other guards: the text is all there, so overlap is perfect,
+    and a short note fits inside the too_long slack. A parenthetical the user
+    actually wrote is left alone.
+    """
+    raw_vocabulary = set(words(raw))
+    while True:
+        match = re.search(r"\s*[\(\[]([^()\[\]]{0,300})[\)\]]\s*$", text)
+        if not match:
+            return text
+        inner = words(match.group(1))
+        if inner and all(word in raw_vocabulary for word in inner):
+            return text
+        text = text[: match.start()].rstrip()
+
+
 def host_is_local(url: str) -> bool:
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower()
@@ -167,12 +185,7 @@ def rewrite(raw: str) -> str:
         flags=re.IGNORECASE,
     ).strip()
     text = text.strip('"').strip()
-    text = re.sub(
-        r"\s*[\(\[]\s*(edited|rewritten|copy-?edited|corrected|improved)\b[^)\]]*[\)\]]\s*$",
-        "",
-        text,
-        flags=re.IGNORECASE,
-    ).strip()
+    text = drop_trailing_aside(raw, text).strip()
 
     raw_words = words(raw)
     out_words = words(text)

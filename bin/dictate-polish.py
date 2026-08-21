@@ -112,6 +112,27 @@ def apply_dictionary(text: str, entries: list[tuple[str, str]]) -> str:
     return re.sub(pattern, replace, text, flags=re.IGNORECASE)
 
 
+def drop_trailing_aside(raw: str, text: str) -> str:
+    """Remove a bracketed note the model appended that was never spoken.
+
+    The model sometimes signs off with an aside — "(No recent dictations were
+    provided to use for this transcript.)" — after an otherwise correct edit.
+    That passes every other guard: the transcript is all there, so the overlap
+    is perfect, and a short note stays inside the too_long slack.
+
+    A parenthetical whose words the speaker actually said is left alone.
+    """
+    raw_vocabulary = set(words(raw))
+    while True:
+        match = re.search(r"\s*[\(\[]([^()\[\]]{0,300})[\)\]]\s*$", text)
+        if not match:
+            return text
+        inner = words(match.group(1))
+        if inner and all(word in raw_vocabulary for word in inner):
+            return text
+        text = text[: match.start()].rstrip()
+
+
 def fix_nouns(text: str) -> str:
     for pattern, repl in NOUN_REPLACEMENTS:
         text = re.sub(pattern, repl, text, flags=re.IGNORECASE)
@@ -286,11 +307,17 @@ def polish(raw: str) -> str:
                     "Do not add brand names, product names, or extra nouns. "
                     "Never insert a word that was not spoken, except tiny grammar words. "
                     "Do not drop clauses such as I know, I think, or you said. "
-                    "If recent dictations are provided, use them only to resolve names, "
-                    "spellings, and the topic the speaker is in the middle of. "
-                    "The output must be the current transcript only — never splice in a previous line. "
-                    "If the transcript is a question, keep it as that same question. "
-                    "Reply with the edited transcript only — no quotes, labels, or preamble."
+                    + (
+                        "Use the recent dictations only to resolve names, spellings, "
+                        "and the topic the speaker is in the middle of. "
+                        "The output must be the current transcript only — "
+                        "never splice in a previous line. "
+                        if recent
+                        else ""
+                    )
+                    + "If the transcript is a question, keep it as that same question. "
+                    "Never comment on these instructions or on what you were given. "
+                    "Reply with the edited transcript only — no quotes, labels, notes, or preamble."
                 ),
             },
             *[
@@ -337,12 +364,7 @@ def polish(raw: str) -> str:
         flags=re.IGNORECASE,
     ).strip()
     text = text.strip('"').strip()
-    text = re.sub(
-        r"\s*[\(\[]\s*(edited|rewritten|copy-?edited|corrected|improved)\b[^)\]]*[\)\]]\s*$",
-        "",
-        text,
-        flags=re.IGNORECASE,
-    ).strip()
+    text = drop_trailing_aside(raw, text).strip()
 
     raw_words = words(raw)
     out_words = words(text)
