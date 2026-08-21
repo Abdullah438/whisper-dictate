@@ -14,15 +14,21 @@ MODEL_DIR="${WHISPER_MODEL_DIR:-${HOME}/.local/share/whisper.cpp/models}"
 UNIT_DIR="${HOME}/.config/systemd/user"
 YDOTOOL_DROPIN="${UNIT_DIR}/ydotool.service.d"
 DESKTOP_ID="local.dictate-toggle.desktop"
+TRAY_DESKTOP_ID="local.dictate-tray.desktop"
+AUTOSTART_DIR="${HOME}/.config/autostart"
 
-mkdir -p "$BIN_DIR" "$APP_DIR" "$MODEL_DIR" "$UNIT_DIR" "$YDOTOOL_DROPIN"
+mkdir -p "$BIN_DIR" "$APP_DIR" "$MODEL_DIR" "$UNIT_DIR" "$YDOTOOL_DROPIN" "$AUTOSTART_DIR"
 
 install -m 0755 "$ROOT/bin/dictate-toggle" "$BIN_DIR/dictate-toggle"
 install -m 0755 "$ROOT/bin/dictate-llm-keepalive" "$BIN_DIR/dictate-llm-keepalive"
 install -m 0755 "$ROOT/bin/dictate-polish.py" "$BIN_DIR/dictate-polish.py"
+install -m 0755 "$ROOT/bin/dictate-tray" "$BIN_DIR/dictate-tray"
 
 sed "s|^Exec=.*|Exec=${BIN_DIR}/dictate-toggle|" \
   "$ROOT/contrib/local.dictate-toggle.desktop" >"$APP_DIR/$DESKTOP_ID"
+sed "s|^Exec=.*|Exec=${BIN_DIR}/dictate-tray --daemon|" \
+  "$ROOT/contrib/local.dictate-tray.desktop" >"$APP_DIR/$TRAY_DESKTOP_ID"
+cp "$APP_DIR/$TRAY_DESKTOP_ID" "$AUTOSTART_DIR/$TRAY_DESKTOP_ID"
 
 install -m 0644 "$ROOT/contrib/systemd/dictate-llm-keepalive.service" \
   "$UNIT_DIR/dictate-llm-keepalive.service"
@@ -45,13 +51,17 @@ fi
 
 echo "Installed scripts to ${BIN_DIR}"
 echo "Installed launcher to ${APP_DIR}/${DESKTOP_ID}"
+echo "Installed tray icon (autostarts on login) to ${AUTOSTART_DIR}/${TRAY_DESKTOP_ID}"
 echo
 echo "Next:"
-echo "  1. Install whisper.cpp (whisper-cli), PipeWire pw-cat, ydotool, and notify-send."
+echo "  1. Install whisper.cpp (whisper-cli), PipeWire pw-cat, ydotool, notify-send,"
+echo "     python-gobject, and gtk3."
 echo "  2. Download a ggml model into ${MODEL_DIR}"
 echo "     Recommended: ggml-large-v3-turbo.bin"
-echo "  3. Bind a global shortcut to ${DESKTOP_ID} (KDE: Meta+Alt+D works well)."
+echo "  3. Click the microphone tray icon to start and stop. Optional shortcut:"
+echo "     bind ${DESKTOP_ID} (KDE: Meta+Alt+D)."
 echo "  4. Optional LLM polish: install Ollama, pull mistral:7b, then:"
 echo "       systemctl --user enable --now dictate-llm-keepalive.timer"
+echo "  5. Start the tray now with:  dictate-tray --daemon &"
 echo
 echo "See README.md for distro packages and model download commands."

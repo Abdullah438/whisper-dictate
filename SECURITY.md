@@ -5,14 +5,14 @@ This tool hears your microphone, transcribes speech on this machine, and then **
 ## Trust model
 
 - **Offline by default.** Audio and text stay on the local computer. Whisper runs via `whisper-cli`. Optional polish talks only to `127.0.0.1:11434` unless you override that.
-- **Your user account.** `install.sh` and `dictate-toggle` refuse to run as root. Runtime files go in `$XDG_RUNTIME_DIR/whisper-dictate` with mode `700`.
+- **Your user account.** `install.sh`, `dictate-toggle`, and `dictate-tray` refuse to run as root. Runtime files go in `$XDG_RUNTIME_DIR/whisper-dictate` with mode `700`.
 - **No network downloads at runtime.** Model files are fetched by you, separately. Verify the checksum before first use.
 
 ## What this software can do
 
 | Capability | Risk |
 | --- | --- |
-| Microphone via PipeWire | Anyone who can run the hotkey can record you while it is armed |
+| Microphone via PipeWire | The tray click or hotkey can record you while it is armed |
 | `ydotool` / `/dev/uinput` | Full keystroke injection into the focused app, including terminals and password fields |
 | Clipboard (`wl-copy`, Klipper) | Transcripts land in clipboard history unless you set `DICTATE_CLIPBOARD=0` |
 | Optional Ollama HTTP | The transcript is sent to that API. Keep it on localhost |

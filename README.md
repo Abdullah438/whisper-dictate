@@ -1,6 +1,6 @@
 # Whisper Dictation
 
-Offline **speech dictation** for Linux. Hold no cloud account: you tap a shortcut, speak, tap again, and the transcript is typed into the focused window.
+Offline **speech dictation** for Linux. Hold no cloud account: click the tray microphone (or tap a shortcut), speak, click again, and the transcript is typed into the focused window.
 
 This is dictation (speech-to-text). It is not a desktop “dictator.”
 
@@ -8,9 +8,10 @@ It is built for **PipeWire + Wayland**, with optional **NVIDIA CUDA** via `whisp
 
 ## What it does
 
-1. First shortcut press starts a 16 kHz mono recording with `pw-cat`.
-2. Second press stops, runs `whisper-cli`, optionally copy-edits the text with Ollama, then types it with `ydotool`.
+1. First click (or shortcut press) starts a 16 kHz mono recording with `pw-cat`.
+2. Second click stops, runs `whisper-cli`, optionally copy-edits the text with Ollama, then types it with `ydotool`.
 3. Notifications stay low-urgency so Plasma does not steal focus from the app you were typing in.
+4. A system tray icon shows idle / recording / transcribing. It starts with your session.
 
 Default model order:
 
@@ -28,7 +29,7 @@ Default model order:
 | A ggml Whisper model | The weights `whisper-cli` loads |
 | `ydotool` / `ydotoold` | Type into the focused Wayland window |
 | `notify-send` | Recording / done toasts |
-| Python 3 | Proper-noun fixes and optional LLM polish |
+| Python 3 + `python-gobject` + GTK 3 | Tray icon and LLM polish |
 | Ollama + `mistral:7b` | Optional cleanup only |
 
 On KDE Plasma Wayland, clipboard paste (`Ctrl+V`) is unreliable from a global shortcut. This stack types with `ydotool` instead.
@@ -44,14 +45,14 @@ chmod +x install.sh bin/*
 ./install.sh
 ```
 
-That copies the scripts to `~/.local/bin`, installs a hidden desktop launcher, and drops in user systemd units.
+That copies the scripts to `~/.local/bin`, installs a hidden shortcut launcher, a tray app (autostart), and user systemd units.
 
 ### Packages
 
 **Arch / CachyOS**
 
 ```bash
-sudo pacman -S --needed whisper-cpp ydotool pipewire python libnotify
+sudo pacman -S --needed whisper-cpp ydotool pipewire python python-gobject gtk3 libnotify
 # GPU (optional, if you have NVIDIA):
 sudo pacman -S --needed ggml-cuda ggml-cpu
 ```
@@ -59,7 +60,7 @@ sudo pacman -S --needed ggml-cuda ggml-cpu
 **Fedora**
 
 ```bash
-sudo dnf install whisper-cpp ydotool pipewire python3 libnotify
+sudo dnf install whisper-cpp ydotool pipewire python3 python3-gobject gtk3 libnotify
 ```
 
 **Debian / Ubuntu**
@@ -78,15 +79,29 @@ sha256sum ~/.local/share/whisper.cpp/models/ggml-large-v3-turbo.bin
 
 `large-v3-turbo` is about 1.6 GB. Full `ggml-large-v3.bin` (~3.1 GB) is a bit more accurate and a lot slower; turbo is the better default for dictation.
 
-### Shortcut (KDE Plasma)
+### Tray icon
 
-1. Settings → Shortcuts → add **Whisper Dictation** (the hidden launcher `local.dictate-toggle.desktop`).
+`install.sh` puts **Whisper Dictation** in the system tray and in session autostart.
+
+- **Left-click** the microphone to start recording. The icon turns into a red record mark.
+- **Left-click** again to stop, transcribe, and type.
+- **Right-click** → Quit tray (dictation itself stays installed).
+- Start it now with `dictate-tray --daemon &` if you do not want to log out.
+
+The tray uses the desktop StatusNotifier protocol (KDE Plasma, and most other Linux panels).
+
+### Shortcut (optional)
+
+The keyboard shortcut still works if you want it:
+
+1. Settings → Shortcuts → add the hidden launcher `local.dictate-toggle.desktop`.
 2. Bind it to **Meta+Alt+D**, or another chord that does not fight your desktop.
 
-GNOME / Hyprland / Sway: bind the same command:
+GNOME / Hyprland / Sway can bind either:
 
 ```bash
-~/.local/bin/dictate-toggle
+~/.local/bin/dictate-toggle    # one-shot toggle
+~/.local/bin/dictate-tray      # start tray, or toggle if it is already running
 ```
 
 ### ydotool on Wayland
@@ -127,9 +142,9 @@ sudo systemctl restart ollama
 
 ## Usage
 
-- **First press:** recording starts.
+- **Click the tray mic** (or press the shortcut): recording starts.
 - **Speak.**
-- **Second press:** transcribe, polish (if enabled), type into the focused field.
+- **Click again:** transcribe, polish (if enabled), type into the focused field.
 
 Set `DICTATE_LLM=0` if you want raw Whisper text with no local LLM.
 
@@ -162,10 +177,12 @@ Details, checksums, and how to report issues: [SECURITY.md](SECURITY.md).
 ## Layout
 
 ```
-bin/dictate-toggle              # hotkey entrypoint
+bin/dictate-toggle              # toggle recording / transcribe
+bin/dictate-tray                # system tray (click to toggle)
 bin/dictate-polish.py           # copy-edit + proper-noun fixes (stdin only)
 bin/dictate-llm-keepalive       # ping Ollama so the model stays resident
 contrib/local.dictate-toggle.desktop
+contrib/local.dictate-tray.desktop
 contrib/systemd/                # user units + ydotool socket drop-in
 contrib/ollama/                 # optional system pin for mistral:7b
 install.sh
@@ -184,6 +201,6 @@ Third-party pieces you install yourself are not covered by that MIT grant:
 | OpenAI Whisper weights (`ggml-*.bin`) | MIT (OpenAI) | Downloaded from Hugging Face / whisper.cpp |
 | whisper.cpp | MIT | Distro package or upstream build |
 | `ydotool` | AGPL-3.0 | Keystroke injection helper |
-| Mistral 7B via Ollama | Apache-2.0 (model) | Optional polish only |
+| Python 3 + GTK | LGPL | Tray icon (`python-gobject`) |
 
 Do not dictate secrets. See [SECURITY.md](SECURITY.md).
