@@ -119,7 +119,22 @@ This project does not install keyboard shortcuts. Point your desktop at the scri
 ~/.local/bin/dictate-tray         # tray icon; click to toggle if it is already running
 ```
 
-**KDE Plasma:** Settings → Keyboard → Shortcuts → Add New → Command or URL. Paste the dictation path, assign a chord, then repeat for rewrite.
+**KDE Plasma:** `install.sh` already registers **Whisper Dictation** and **Rewrite
+Selection** as command shortcuts — they just have no key yet. Go to Settings →
+Keyboard → Shortcuts, search for those two names, and assign a chord to each.
+
+Do **not** use *Add New → Command or URL* to point at the same script. That
+creates a second entry with the same `Exec`, and you end up with two rows per
+script: the one you created and the one the installer registered. Only one of
+them can hold the binding, and it is usually not the one you are looking at.
+If you already did this, delete the extra `net.local.*.desktop` files from
+`~/.local/share/applications` and assign the key to the installed row.
+
+Avoid a chord whose key needs Shift to type, such as `Ctrl+?` (Shift+/).
+Plasma stores it without the Shift modifier and it can silently never fire on
+Wayland. `Meta+Ctrl+/` and `Meta+Ctrl+\` work well and collide with nothing.
+Remember that a global shortcut is swallowed before the focused app sees it, so
+`Ctrl+/` would cost you toggle-comment in every editor.
 
 **GNOME:** Settings → Keyboard → Keyboard Shortcuts → Custom Shortcuts.
 
