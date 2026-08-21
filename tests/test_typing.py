@@ -90,6 +90,13 @@ def test_the_scratch_file_does_not_outlive_the_typing(typer):
 
 CTRL_V = "key 29:1 47:1 47:0 29:0"
 CTRL_SHIFT_V = "key 29:1 42:1 47:1 47:0 42:0 29:0"
+SHIFT_INSERT = "key 42:1 110:1 110:0 42:0"
+SET_PRIMARY = "wl-copy --primary --type text/plain"
+
+# Stub, so a test can never write to the real primary selection.
+FAKE_WL_COPY = """#!/bin/sh
+printf 'wl-copy %s\\n' "$*" >> "$YDOTOOL_LOG"; cat > /dev/null
+"""
 
 
 @pytest.fixture
@@ -99,6 +106,9 @@ def inserter(tmp_path):
     tool = fakebin / "ydotool"
     tool.write_text(FAKE_YDOTOOL)
     tool.chmod(0o755)
+    clip = fakebin / "wl-copy"
+    clip.write_text(FAKE_WL_COPY)
+    clip.chmod(0o755)
     log = tmp_path / "calls.log"
     scratch = tmp_path / "scratch.txt"
 
@@ -125,11 +135,18 @@ def test_paste_is_one_keystroke_regardless_of_length(inserter):
     """The whole point: cost must not scale with the length of the transcript."""
     short = inserter("hi", DICTATE_INSERT="paste")
     long = inserter("word " * 400, DICTATE_INSERT="paste")
-    assert short == [CTRL_V]
-    assert long == [CTRL_V]
+    assert short == [SET_PRIMARY, SHIFT_INSERT]
+    assert long == [SET_PRIMARY, SHIFT_INSERT]
 
 
-def test_paste_key_can_be_the_terminal_chord(inserter):
+def test_the_default_chord_also_fills_the_primary_selection(inserter):
+    """Konsole and Alacritty bind Shift+Insert to paste-primary, not clipboard."""
+    calls = inserter("hi", DICTATE_INSERT="paste")
+    assert calls.index(SET_PRIMARY) < calls.index(SHIFT_INSERT)
+
+
+def test_paste_key_can_be_either_ctrl_chord(inserter):
+    assert inserter("hi", DICTATE_INSERT="paste", DICTATE_PASTE_KEY="ctrl+v") == [CTRL_V]
     assert inserter("hi", DICTATE_INSERT="paste", DICTATE_PASTE_KEY="ctrl+shift+v") == [CTRL_SHIFT_V]
 
 

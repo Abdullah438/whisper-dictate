@@ -295,7 +295,7 @@ a single run.
 | `DICTATE_KEY_DELAY` | `8` | `ydotool` key delay, in ms |
 | `DICTATE_NEWLINE` | `shift-enter` | How a line break is typed: `shift-enter`, `enter`, `space` |
 | `DICTATE_INSERT` | `type` | `type` keystroke by keystroke, or `paste` in one keystroke |
-| `DICTATE_PASTE_KEY` | `ctrl+v` | Paste chord; `ctrl+shift+v` for terminals |
+| `DICTATE_PASTE_KEY` | `shift+insert` | Paste chord: `shift+insert`, `ctrl+v`, `ctrl+shift+v` |
 | `DICTATE_PRIMARY` | `1` | Rewrite reads the primary selection; `0` uses `Ctrl+C` |
 | `DICTATE_CONFIG` | `~/.config/whisper-dictate/config` | Settings file |
 
@@ -310,11 +310,25 @@ arriving, every bit of it *after* whisper.cpp and the LLM have already finished.
 DICTATE_INSERT=paste
 ```
 
-Pasting is one keystroke regardless of length, so the wait disappears. The
-trade-offs: it needs `DICTATE_CLIPBOARD=1` (the default), the transcript passes
-through your clipboard, terminals want `DICTATE_PASTE_KEY=ctrl+shift+v` instead
-of `Ctrl+V`, and a few password or payment fields refuse paste outright. With
-the clipboard switched off it falls back to typing.
+Pasting is one keystroke regardless of length, so the wait disappears.
+
+The chord matters, because no single one is universal. `Ctrl+V` pastes in GUI
+apps but is readline's quoted-insert in a terminal. `Ctrl+Shift+V` pastes in
+terminals but opens Paste Special in LibreOffice and the Markdown preview in
+VS Code. The default is therefore **`Shift+Insert`**: GUI text fields treat it
+as paste, and Konsole and Alacritty bind it to paste-*primary*, so the primary
+selection is filled alongside the clipboard and the same keystroke covers both.
+
+| `DICTATE_PASTE_KEY` | GUI apps | Terminals |
+| --- | --- | --- |
+| `shift+insert` (default) | paste | paste (primary) |
+| `ctrl+v` | paste | quoted-insert |
+| `ctrl+shift+v` | varies — dialogs in some | paste |
+
+Pasting needs `DICTATE_CLIPBOARD=1` (the default), and the transcript passes
+through your clipboard; `shift+insert` also replaces your primary selection.
+A few password and payment fields refuse paste outright. With the clipboard
+switched off it falls back to typing.
 
 If you would rather keep typing, `DICTATE_KEY_DELAY=0` is far quicker than the
 default, though some apps drop or reorder characters that arrive with no delay

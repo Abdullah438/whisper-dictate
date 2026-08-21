@@ -162,13 +162,20 @@ dictate_insert_text() {
   local log="${3:-/dev/null}"
 
   if [[ "${DICTATE_INSERT:-type}" == "paste" ]] && [[ "${DICTATE_CLIPBOARD:-1}" != "0" ]]; then
-    case "${DICTATE_PASTE_KEY:-ctrl+v}" in
+    case "${DICTATE_PASTE_KEY:-shift+insert}" in
+      ctrl+v)
+        ydotool key 29:1 47:1 47:0 29:0 >>"$log" 2>&1 || true
+        ;;
       ctrl+shift+v)
         # LeftCtrl, LeftShift, V down; then up in reverse.
         ydotool key 29:1 42:1 47:1 47:0 42:0 29:0 >>"$log" 2>&1 || true
         ;;
       *)
-        ydotool key 29:1 47:1 47:0 29:0 >>"$log" 2>&1 || true
+        # Shift+Insert is the one chord both worlds accept. A GUI text field
+        # treats it as paste-clipboard; Konsole and Alacritty bind it to
+        # paste-primary, so the primary selection has to hold the text too.
+        printf '%s' "$text" | wl-copy --primary --type text/plain >>"$log" 2>&1 || true
+        ydotool key 42:1 110:1 110:0 42:0 >>"$log" 2>&1 || true
         ;;
     esac
     return 0
