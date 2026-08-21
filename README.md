@@ -12,7 +12,7 @@ It is built for **PipeWire + Wayland**, with optional **NVIDIA CUDA** via `whisp
 2. Second click stops, runs `whisper-cli`, optionally copy-edits the text with Ollama, then types it with `ydotool`.
 3. Notifications stay low-urgency so Plasma does not steal focus from the app you were typing in.
 4. A system tray icon can show idle / recording / transcribing.
-5. Highlight text and press **Meta+Alt+R** to rewrite it with the same local Mistral model.
+5. Highlight text and run `rewrite-selection` (bind that script in your desktop) to rewrite it with the same local Mistral model.
 
 Default model order:
 
@@ -46,7 +46,7 @@ chmod +x install.sh bin/*
 ./install.sh
 ```
 
-That copies the scripts to `~/.local/bin`, installs a hidden shortcut launcher, a tray app (autostart), and user systemd units.
+That copies the scripts to `~/.local/bin`, installs a tray app (autostart), and user systemd units. Bind the scripts yourself in your desktop's shortcut settings.
 
 ### Packages
 
@@ -91,25 +91,25 @@ sha256sum ~/.local/share/whisper.cpp/models/ggml-large-v3-turbo.bin
 
 The tray uses the desktop StatusNotifier protocol (KDE Plasma, and most other Linux panels).
 
-### Shortcut (optional)
+### Shortcuts
 
-On KDE Plasma, `install.sh` enables a KWin script so the chords survive login:
-
-- **Dictation:** Ctrl+? (that is Ctrl+Shift+/ on a US keyboard)
-- **Rewrite:** Meta+Alt+R
-
-Plasma application shortcuts go inactive after reboot; binding inside KWin avoids that. Change the chords later in Settings → Shortcuts → KWin → Whisper Dictation.
-
-GNOME / Hyprland / Sway can bind either:
+This project does not install keyboard shortcuts. Point your desktop at the scripts:
 
 ```bash
-~/.local/bin/dictate-toggle    # one-shot toggle
-~/.local/bin/dictate-tray      # start tray, or toggle if it is already running
+~/.local/bin/dictate-toggle       # first press records, second press transcribes
+~/.local/bin/rewrite-selection    # rewrite the current text selection
+~/.local/bin/dictate-tray         # tray icon; click to toggle if it is already running
 ```
+
+**KDE Plasma:** Settings → Keyboard → Shortcuts → Add New → Command or URL. Paste the dictation path, assign a chord, then repeat for rewrite.
+
+**GNOME:** Settings → Keyboard → Keyboard Shortcuts → Custom Shortcuts.
+
+**Hyprland / Sway:** bind the same paths in `hyprland.conf` or the Sway config.
 
 ### Rewrite selection
 
-Highlight a sentence or paragraph, then press **Meta+Alt+R**. The script copies the selection, rewrites it with `mistral:7b`, and types the result over the highlight. Newlines are sent as Shift+Enter so chat apps such as WhatsApp do not send each line as its own message.
+Highlight a sentence or paragraph, then run `rewrite-selection`. The script copies the selection, rewrites it with `mistral:7b`, and types the result over the highlight. Newlines are sent as Shift+Enter so chat apps such as WhatsApp do not send each line as its own message.
 
 Use this for text you already wrote. Dictation cleanup stays a separate, stricter pass.
 
@@ -151,10 +151,10 @@ sudo systemctl restart ollama
 
 ## Usage
 
-- **Click the tray mic** (or **Ctrl+?**): recording starts.
+- **Click the tray mic** (or your dictation shortcut): recording starts.
 - **Speak.**
-- **Click again:** transcribe, polish (if enabled), type into the focused field.
-- **Select text, then Meta+Alt+R:** rewrite that selection in place.
+- **Click again** (or the same shortcut): transcribe, polish (if enabled), type into the focused field.
+- **Select text, then your rewrite shortcut:** rewrite that selection in place.
 
 Set `DICTATE_LLM=0` if you want raw Whisper text with no local LLM. Rewrite still needs Ollama.
 
