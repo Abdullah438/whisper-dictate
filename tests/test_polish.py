@@ -221,3 +221,55 @@ def test_a_long_dictation_gets_a_longer_timeout(polish_mod, fake_ollama):
     long_opener = fake_ollama("fine.")
     polish_mod.polish(LONG_RAW)
     assert long_opener.timeout > short.timeout
+
+
+# The model sometimes signs off with an aside after an otherwise correct edit.
+# It defeats every other guard at once: the transcript is all present so the
+# overlap is perfect, and a short note fits inside the too_long slack.
+ASIDE = "(No recent dictations were provided to use for this transcript.)"
+
+
+def test_an_appended_note_is_stripped_not_typed(polish_mod, fake_ollama):
+    raw = "what do you think can AI do in this era"
+    fake_ollama(f"What do you think AI can do in this era? {ASIDE}")
+    assert polish_mod.polish(raw) == "What do you think AI can do in this era?"
+
+
+def test_a_reply_that_is_only_a_note_falls_back(polish_mod, fake_ollama):
+    raw = "okay"
+    fake_ollama(ASIDE)
+    assert polish_mod.polish(raw) == raw
+
+
+def test_a_bracketed_note_is_stripped_too(polish_mod, fake_ollama):
+    raw = "ship it tomorrow if the tests pass"
+    fake_ollama("Ship it tomorrow if the tests pass. [note: no context supplied]")
+    assert polish_mod.polish(raw) == "Ship it tomorrow if the tests pass."
+
+
+def test_the_old_edited_marker_is_still_handled(polish_mod, fake_ollama):
+    raw = "ship it tomorrow if the tests pass"
+    fake_ollama("Ship it tomorrow if the tests pass. (edited)")
+    assert polish_mod.polish(raw) == "Ship it tomorrow if the tests pass."
+
+
+def test_a_parenthetical_the_speaker_said_survives(polish_mod, fake_ollama):
+    """Only asides the speaker did not say are removed."""
+    raw = "i paid the bill the big one"
+    fake_ollama("I paid the bill (the big one).")
+    assert polish_mod.polish(raw) == "I paid the bill (the big one)."
+
+
+def test_recent_dictations_are_not_mentioned_when_there_are_none(
+    polish_mod, fake_ollama, isolated_env
+):
+    """Naming them unprompted is what invited the note about their absence."""
+    opener = fake_ollama("Fine.")
+    polish_mod.polish("this is a line with several words in it")
+    system = opener.payload["messages"][0]["content"]
+    assert "recent dictation" not in system.lower()
+
+    polish_mod.remember_recent("an earlier line about the tray icon")
+    opener = fake_ollama("Fine.")
+    polish_mod.polish("this is a line with several words in it")
+    assert "recent dictation" in opener.payload["messages"][0]["content"].lower()
