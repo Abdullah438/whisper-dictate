@@ -14,7 +14,9 @@ LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 # Must match dictate-polish.py and dictate-llm-keepalive: Ollama reloads the
 # model whenever num_ctx changes, which costs a few seconds on the next call.
-LLM_NUM_CTX = 4096
+LLM_NUM_CTX = 8192
+LLM_NUM_PREDICT = 4096
+MIN_KEPT_WORDS = 0.6
 
 
 def words(s: str) -> list[str]:
@@ -100,7 +102,7 @@ def rewrite(raw: str) -> str:
         "model": model,
         "stream": False,
         "keep_alive": -1,
-        "options": {"temperature": 0.2, "num_predict": 1024, "num_ctx": LLM_NUM_CTX},
+        "options": {"temperature": 0.2, "num_predict": LLM_NUM_PREDICT, "num_ctx": LLM_NUM_CTX},
         "messages": [
             {
                 "role": "system",
@@ -143,9 +145,13 @@ def rewrite(raw: str) -> str:
     )
     opener = urllib.request.build_opener(NoRedirect)
     try:
-        with opener.open(req, timeout=20) as resp:
+        with opener.open(req, timeout=min(90, 20 + len(raw) // 40)) as resp:
             data = json.loads(resp.read().decode())
     except Exception:
+        return raw
+
+    # Ran out of tokens: the reply is a fragment, so keep what the user wrote.
+    if data.get("done_reason") == "length":
         return raw
 
     text = (data.get("message") or {}).get("content") or ""
@@ -177,7 +183,9 @@ def rewrite(raw: str) -> str:
     )
     too_long = len(text) > max(len(raw) * 2.5, len(raw) + 200)
     too_new = len(raw_words) >= 6 and overlap < 0.45
-    if not text or too_long or too_new or pronoun_drift(raw, text):
+    # A copy-edit must not quietly shorten a long selection by half.
+    too_short = len(raw_words) >= 40 and len(out_words) < len(raw_words) * MIN_KEPT_WORDS
+    if not text or too_long or too_short or too_new or pronoun_drift(raw, text):
         return raw
     return align_line_breaks(raw, text)
 

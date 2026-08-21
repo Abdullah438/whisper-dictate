@@ -253,6 +253,13 @@ You also need write access to `/dev/uinput` (often the `input` group, or the ude
 
 Whisper output is usable on its own. Ollama only fixes punctuation, capitalization, and obvious ASR mistakes. It is instructed **not to answer questions** — a dictated question stays a question.
 
+If the model returns something shorter than what you said, the polish is thrown
+away and the raw Whisper transcript is used instead. That covers the two ways a
+long dictation used to lose its ending: the reply running out of tokens
+mid-sentence, and the model quietly summarising instead of copy-editing. You get
+unpolished but complete text rather than polished text with the last third
+missing.
+
 The last four accepted dictations stay in `$XDG_RUNTIME_DIR/whisper-dictate/recent.json` for this login. Polish may use them to resolve names and the current topic. It must still emit only the line you just spoke. Set `DICTATE_CONTEXT=0` to turn that off. This is not fed into Whisper’s `--prompt`.
 
 ```bash

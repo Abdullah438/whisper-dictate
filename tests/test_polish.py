@@ -12,13 +12,18 @@ import pytest
 
 
 class FakeOpener:
-    def __init__(self, reply: str):
+    def __init__(self, reply: str, done_reason: str = "stop"):
         self.reply = reply
+        self.done_reason = done_reason
         self.payload: dict | None = None
+        self.timeout: float | None = None
 
     def open(self, req, timeout=None):
         self.payload = json.loads(req.data.decode())
-        body = json.dumps({"message": {"content": self.reply}}).encode()
+        self.timeout = timeout
+        body = json.dumps(
+            {"message": {"content": self.reply}, "done_reason": self.done_reason}
+        ).encode()
         return _Response(body)
 
 
@@ -32,8 +37,8 @@ class _Response(io.BytesIO):
 
 @pytest.fixture
 def fake_ollama(polish_mod, monkeypatch, isolated_env):
-    def install(reply: str) -> FakeOpener:
-        opener = FakeOpener(reply)
+    def install(reply: str, done_reason: str = "stop") -> FakeOpener:
+        opener = FakeOpener(reply, done_reason)
         monkeypatch.setattr(
             polish_mod.urllib.request, "build_opener", lambda *_a, **_k: opener
         )
@@ -152,3 +157,67 @@ def test_keeps_a_brand_name_that_was_spoken(polish_mod):
         polish_mod.SPOKEN_OLLAMA, "Ollama",
     )
     assert "Ollama" in out
+
+
+# A dictation long enough that the model's reply can run out of tokens. Every
+# other guard here watches for words being added; these watch for them going
+# missing, which is what truncation and summarising look like.
+LONG_RAW = " ".join(
+    f"the {a} step {b} the {c} record before the window closes"
+    for a in ("parser", "worker", "cache", "router", "backup", "index")
+    for b in ("reads", "checks", "rotates")
+    for c in ("staging", "nightly", "pending")
+)
+
+
+def test_a_truncated_reply_is_refused(polish_mod, fake_ollama):
+    """Ollama says done_reason=length when it ran out of tokens mid-sentence."""
+    half = " ".join(LONG_RAW.split()[: len(LONG_RAW.split()) // 2]) + " and then the"
+    fake_ollama(half, done_reason="length")
+    assert polish_mod.polish(LONG_RAW) == LONG_RAW
+
+
+def test_a_summarised_reply_is_refused(polish_mod, fake_ollama):
+    """done_reason=stop, fluent, plausible — and a third of the words gone."""
+    third = " ".join(LONG_RAW.split()[: len(LONG_RAW.split()) // 3]) + "."
+    fake_ollama(third)
+    assert polish_mod.polish(LONG_RAW) == LONG_RAW
+
+
+def test_removing_filler_is_still_allowed(polish_mod, fake_ollama):
+    """The floor must not punish the shortening polish is supposed to do.
+
+    About a sixth filler, which is normal for speech. The cleaned version
+    keeps ~83% of the words and has to survive the floor.
+    """
+    spoken = " ".join(
+        f"um word{i} word{i}a word{i}b word{i}c word{i}d" for i in range(20)
+    )
+    cleaned = " ".join(
+        f"word{i} word{i}a word{i}b word{i}c word{i}d" for i in range(20)
+    ) + "."
+    fake_ollama(cleaned)
+    assert polish_mod.polish(spoken) == cleaned
+
+
+def test_short_dictations_are_exempt_from_the_floor(polish_mod, fake_ollama):
+    """A brief line gets edited without the floor second-guessing it."""
+    raw = "um so i think we should go now"
+    fake_ollama("So I think we should go now.")
+    assert polish_mod.polish(raw) == "So I think we should go now."
+
+
+def test_the_token_budget_covers_a_long_dictation(polish_mod, fake_ollama):
+    """1024 cut a reply off at about four minutes of speech."""
+    opener = fake_ollama("fine.")
+    polish_mod.polish("hello there friend")
+    assert opener.payload["options"]["num_predict"] >= 2048
+    assert opener.payload["options"]["num_ctx"] == polish_mod.LLM_NUM_CTX
+
+
+def test_a_long_dictation_gets_a_longer_timeout(polish_mod, fake_ollama):
+    short = fake_ollama("fine.")
+    polish_mod.polish("hello there friend")
+    long_opener = fake_ollama("fine.")
+    polish_mod.polish(LONG_RAW)
+    assert long_opener.timeout > short.timeout
