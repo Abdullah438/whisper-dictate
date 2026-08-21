@@ -253,6 +253,11 @@ SHOTS = (
 )
 
 
+def unbalanced_quotes(text: str) -> bool:
+    """An odd quote count means the model wrapped part of the line and stopped."""
+    return text.count('"') % 2 == 1 or text.count("\u201c") != text.count("\u201d")
+
+
 def pronoun_drift(raw: str, text: str) -> bool:
     raw_w = words(raw)
     out_w = words(text)
@@ -379,11 +384,17 @@ def polish(raw: str) -> str:
     # This one watches for it losing them, which is what a truncated or
     # summarised reply looks like: fluent, plausible, and missing the end.
     too_short = len(raw_words) >= 40 and len(out_words) < len(raw_words) * MIN_KEPT_WORDS
+    # clean_text collapses the transcript to a single line before polish sees
+    # it, so a line break in the reply is the model restating or annotating
+    # rather than editing — and with Shift+Enter it would be typed out as one.
+    invented_break = "\n" in text
     if (
         not text
         or too_long
         or too_short
         or too_new
+        or invented_break
+        or unbalanced_quotes(text)
         or pronoun_drift(raw, text)
         or prior_leak(raw, text, recent)
     ):
