@@ -54,17 +54,44 @@ read_clipboard() {
   printf '%s' "$text"
 }
 
+shift_enter() {
+  # Chat apps (WhatsApp, Telegram, …) send on Enter. Shift+Enter is a newline.
+  ydotool key 42:1 28:1 28:0 42:0 >>"$STATE_DIR/rewrite.log" 2>&1 || true
+}
+
+type_line() {
+  local line="$1"
+  local paste_file="$STATE_DIR/rewrite.txt"
+  [[ -n "$line" ]] || return 0
+  printf '%s' "$line" >"$paste_file"
+  chmod 600 "$paste_file" 2>/dev/null || true
+  ydotool type --key-delay 8 --key-hold 8 --file "$paste_file" >>"$STATE_DIR/rewrite.log" 2>&1 || true
+}
+
 type_text() {
   local text="$1"
-  local paste_file="$STATE_DIR/rewrite.txt"
+  local rest line
   release_modifiers
   sleep 0.2
-  printf '%s' "$text" >"$paste_file"
-  chmod 600 "$paste_file" 2>/dev/null || true
   qdbus6 org.kde.klipper /klipper org.kde.klipper.klipper.setClipboardContents "$text" \
     >>"$STATE_DIR/rewrite.log" 2>&1 || true
   printf '%s' "$text" | wl-copy --type text/plain >>"$STATE_DIR/rewrite.log" 2>&1 || true
-  ydotool type --key-delay 8 --key-hold 8 --file "$paste_file" >>"$STATE_DIR/rewrite.log" 2>&1 || true
+
+  rest="$text"
+  local first=1
+  while true; do
+    line="${rest%%$'\n'*}"
+    if [[ "$first" -eq 0 ]]; then
+      shift_enter
+      sleep 0.04
+    fi
+    first=0
+    type_line "$line"
+    if [[ "$rest" == "$line" ]]; then
+      break
+    fi
+    rest="${rest#*$'\n'}"
+  done
 }
 
 case "${1:-}" in

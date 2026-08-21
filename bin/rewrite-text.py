@@ -53,6 +53,18 @@ SHOTS = (
 )
 
 
+def align_line_breaks(raw: str, text: str) -> str:
+    """Do not explode a short note into many chat-sendable lines."""
+    raw_nl = raw.count("\n")
+    out_nl = text.count("\n")
+    if out_nl <= raw_nl + 1:
+        return text
+    if "\n\n" in raw:
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text
+    return re.sub(r" +", " ", re.sub(r"[\r\n]+", " ", text)).strip()
+
+
 def rewrite(raw: str) -> str:
     raw = raw.strip()
     if not raw:
@@ -81,6 +93,9 @@ def rewrite(raw: str) -> str:
                     "Keep contractions and a natural tone; do not make it stiff. "
                     "Do not add facts, names, brands, or extra claims. "
                     "Do not add a greeting or sign-off that was not there. "
+                    "Keep the original line breaks. "
+                    "Do not turn one paragraph into many short lines or a list "
+                    "unless the source is already a list. "
                     "If the text is a question, keep it as that same question. "
                     "Reply with the rewritten text only — no quotes, labels, or preamble."
                 ),
@@ -134,7 +149,7 @@ def rewrite(raw: str) -> str:
     too_new = len(raw_words) >= 6 and overlap < 0.25
     if not text or too_long or too_new:
         return raw
-    return text
+    return align_line_breaks(raw, text)
 
 
 def main() -> int:

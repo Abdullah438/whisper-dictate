@@ -107,7 +107,7 @@ GNOME / Hyprland / Sway can bind either:
 
 ### Rewrite selection
 
-Highlight a sentence or paragraph, then press **Meta+Alt+R** (or bind `local.rewrite-selection.desktop` to another chord). The script copies the selection, rewrites it with `mistral:7b`, and types the result over the highlight.
+Highlight a sentence or paragraph, then press **Meta+Alt+R**. The script copies the selection, rewrites it with `mistral:7b`, and types the result over the highlight. Newlines are sent as Shift+Enter so chat apps such as WhatsApp do not send each line as its own message.
 
 Use this for text you already wrote. Dictation cleanup stays a separate, stricter pass.
 
