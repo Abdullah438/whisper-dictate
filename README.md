@@ -11,7 +11,8 @@ It is built for **PipeWire + Wayland**, with optional **NVIDIA CUDA** via `whisp
 1. First click (or shortcut press) starts a 16 kHz mono recording with `pw-cat`.
 2. Second click stops, runs `whisper-cli`, optionally copy-edits the text with Ollama, then types it with `ydotool`.
 3. Notifications stay low-urgency so Plasma does not steal focus from the app you were typing in.
-4. A system tray icon shows idle / recording / transcribing. It starts with your session.
+4. A system tray icon can show idle / recording / transcribing.
+5. Highlight text and press **Ctrl+Shift+Y** to rewrite it with the same local Mistral model.
 
 Default model order:
 
@@ -104,6 +105,14 @@ GNOME / Hyprland / Sway can bind either:
 ~/.local/bin/dictate-tray      # start tray, or toggle if it is already running
 ```
 
+### Rewrite selection
+
+Highlight a sentence or paragraph, then press **Ctrl+Shift+Y** (or bind `local.rewrite-selection.desktop` to another Ctrl+Shift chord). The script copies the selection, rewrites it with `mistral:7b`, and types the result over the highlight.
+
+Use this for text you already wrote. Dictation cleanup stays a separate, stricter pass.
+
+Ctrl+Shift+Y is used instead of Ctrl+Shift+R so it does not steal Redo or browser hard-refresh.
+
 ### ydotool on Wayland
 
 The installer writes `~/.config/systemd/user/ydotool.service.d/socket.conf` so `ydotoold` listens on `$XDG_RUNTIME_DIR/.ydotool_socket`. Enable it:
@@ -142,11 +151,12 @@ sudo systemctl restart ollama
 
 ## Usage
 
-- **Click the tray mic** (or press the shortcut): recording starts.
+- **Click the tray mic** (or press the dictation shortcut): recording starts.
 - **Speak.**
 - **Click again:** transcribe, polish (if enabled), type into the focused field.
+- **Select text, then Ctrl+Shift+Y:** rewrite that selection in place.
 
-Set `DICTATE_LLM=0` if you want raw Whisper text with no local LLM.
+Set `DICTATE_LLM=0` if you want raw Whisper text with no local LLM. Rewrite still needs Ollama.
 
 ## Environment
 
@@ -180,9 +190,12 @@ Details, checksums, and how to report issues: [SECURITY.md](SECURITY.md).
 bin/dictate-toggle              # toggle recording / transcribe
 bin/dictate-tray                # system tray (click to toggle)
 bin/dictate-polish.py           # copy-edit + proper-noun fixes (stdin only)
+bin/rewrite-selection           # rewrite highlighted text
+bin/rewrite-text.py             # Mistral rewrite (stdin only)
 bin/dictate-llm-keepalive       # ping Ollama so the model stays resident
 contrib/local.dictate-toggle.desktop
 contrib/local.dictate-tray.desktop
+contrib/local.rewrite-selection.desktop
 contrib/systemd/                # user units + ydotool socket drop-in
 contrib/ollama/                 # optional system pin for mistral:7b
 install.sh

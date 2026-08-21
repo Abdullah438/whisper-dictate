@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+# Copy the current selection, rewrite it with Mistral, type it back in place.
+set -euo pipefail
+
+STATE_DIR="${XDG_RUNTIME_DIR:-/tmp}/whisper-dictate"
+LLM_MODEL="${DICTATE_LLM_MODEL:-mistral:7b}"
+LLM_HOST="${DICTATE_LLM_HOST:-http://127.0.0.1:11434}"
+YDOTOOL_SOCKET="${YDOTOOL_SOCKET:-${XDG_RUNTIME_DIR:-/tmp}/.ydotool_socket}"
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REWRITE_BIN="${SELF_DIR}/rewrite-text.py"
+LOCKDIR="$STATE_DIR/rewrite.lock.d"
+export YDOTOOL_SOCKET
+export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+export DISPLAY="${DISPLAY:-:0}"
+
+if [[ "${EUID}" -eq 0 ]]; then
+  echo "rewrite-selection: refuse to run as root" >&2
+  exit 1
+fi
+
+umask 077
+mkdir -p "$STATE_DIR"
+chmod 700 "$STATE_DIR" 2>/dev/null || true
+
+notify() {
+  local title="$1"
+  local body="${2:-}"
+  notify-send -u low -a "Whisper Dictation" -i document-edit \
+    -h int:transient:1 \
+    -h string:x-canonical-private-synchronous:whisper-rewrite \
+    "$title" "$body" >/dev/null 2>&1 || true
+}
+
+release_modifiers() {
+  # Super, Alt, Ctrl, Shift, and Y from Ctrl+Shift+Y.
+  ydotool key 125:0 126:0 56:0 100:0 29:0 97:0 42:0 54:0 21:0 \
+    >>"$STATE_DIR/rewrite.log" 2>&1 || true
+}
+
+copy_selection() {
+  release_modifiers
+  sleep 0.15
+  # LeftCtrl down, C down/up, LeftCtrl up
+  ydotool key 29:1 46:1 46:0 29:0 >>"$STATE_DIR/rewrite.log" 2>&1 || true
+  sleep 0.25
+}
+
+read_clipboard() {
+  local text=""
+  text="$(wl-paste --no-newline --type text/plain 2>/dev/null || true)"
+  if [[ -z "$text" ]]; then
+    text="$(qdbus6 org.kde.klipper /klipper org.kde.klipper.klipper.getClipboardContents 2>/dev/null || true)"
+  fi
+  printf '%s' "$text"
+}
+
+type_text() {
+  local text="$1"
+  local paste_file="$STATE_DIR/rewrite.txt"
+  release_modifiers
+  sleep 0.2
+  printf '%s' "$text" >"$paste_file"
+  chmod 600 "$paste_file" 2>/dev/null || true
+  qdbus6 org.kde.klipper /klipper org.kde.klipper.klipper.setClipboardContents "$text" \
+    >>"$STATE_DIR/rewrite.log" 2>&1 || true
+  printf '%s' "$text" | wl-copy --type text/plain >>"$STATE_DIR/rewrite.log" 2>&1 || true
+  ydotool type --key-delay 8 --key-hold 8 --file "$paste_file" >>"$STATE_DIR/rewrite.log" 2>&1 || true
+}
+
+case "${1:-}" in
+  -h|--help)
+    cat <<'EOF'
+rewrite-selection — rewrite highlighted text with a local Mistral model
+
+Usage:
+  rewrite-selection        Copy selection, rewrite, type replacement
+  rewrite-selection --help
+
+Select text first, then press the shortcut (Ctrl+Shift+Y).
+
+Environment:
+  DICTATE_LLM_MODEL   Ollama model (default: mistral:7b)
+  DICTATE_LLM_HOST    Ollama host (default: http://127.0.0.1:11434)
+  YDOTOOL_SOCKET      ydotool socket
+EOF
+    exit 0
+    ;;
+esac
+
+if [[ ! -S "$YDOTOOL_SOCKET" ]] || ! command -v ydotool >/dev/null 2>&1; then
+  notify "Rewrite failed" "ydotool is not running."
+  exit 1
+fi
+
+if [[ ! -f "$REWRITE_BIN" ]]; then
+  notify "Rewrite failed" "rewrite-text.py is missing."
+  exit 1
+fi
+
+if ! mkdir "$LOCKDIR" 2>/dev/null; then
+  notify "Rewrite" "Busy — ignored extra keypress."
+  exit 0
+fi
+trap 'rmdir "$LOCKDIR" 2>/dev/null || true' EXIT
+
+copy_selection
+raw="$(read_clipboard)"
+raw="${raw//$'\r'/}"
+
+if [[ -z "${raw//[[:space:]]/}" ]]; then
+  notify "Rewrite" "Select some text first."
+  exit 0
+fi
+
+if [[ "${#raw}" -gt 8000 ]]; then
+  notify "Rewrite" "Selection is too long. Highlight a shorter passage."
+  exit 0
+fi
+
+notify "Rewriting…"
+
+rewritten="$(
+  printf '%s' "$raw" | LLM_MODEL="$LLM_MODEL" LLM_HOST="$LLM_HOST" python3 "$REWRITE_BIN"
+)" || true
+
+if [[ -z "${rewritten//[[:space:]]/}" ]]; then
+  notify "Rewrite" "Nothing to type."
+  exit 0
+fi
+
+type_text "$rewritten"
+notify "Rewrite complete"
