@@ -41,10 +41,16 @@
 # after the transcription has already finished.
 #
 # "paste" is a single keystroke no matter how long the text is. It needs the
-# clipboard on, and the chord is not universal: terminals want ctrl+shift+v,
-# and some password fields refuse paste entirely.
+# clipboard on, and some password and payment fields refuse paste entirely.
 #DICTATE_INSERT=type
-#DICTATE_PASTE_KEY=ctrl+v
+
+# Which paste chord to send. shift+insert is the default because it is the one
+# combination both worlds accept: a GUI text field treats it as paste, while
+# Konsole and Alacritty bind it to paste-primary (so the primary selection is
+# filled too). ctrl+v works in GUI apps but is quoted-insert in a terminal;
+# ctrl+shift+v works in terminals but opens Paste Special in LibreOffice and
+# the Markdown preview in VS Code.
+#DICTATE_PASTE_KEY=shift+insert
 
 # Typing speed, when DICTATE_INSERT=type. 0 is as fast as ydotool will go, but
 # some apps drop or reorder characters when they arrive with no delay.
