@@ -22,6 +22,8 @@ NOUN_REPLACEMENTS = (
     (r"\bo[\s-]+llamas?\b", "Ollama"),
 )
 
+DICTIONARY_MAX_ENTRIES = 500
+
 SPOKEN_OLLAMA = re.compile(
     r"\b(u[\s-]*lamas?|olama|o[\s-]+llamas?|ollama)\b",
     re.IGNORECASE,
@@ -39,10 +41,70 @@ def drop_unprompted(raw: str, text: str, spoken: re.Pattern[str], token: str) ->
     return re.sub(r" +", " ", text).strip(" ,;:-")
 
 
+def dictionary_path() -> str:
+    explicit = os.environ.get("DICTATE_DICTIONARY", "").strip()
+    if explicit:
+        return explicit
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
+        os.path.expanduser("~"), ".config"
+    )
+    return os.path.join(base, "whisper-dictate", "dictionary")
+
+
+def load_dictionary(path: str | None = None) -> list[tuple[str, str]]:
+    """Read `spoken = Replacement` lines the user keeps for names and jargon."""
+    try:
+        with open(path or dictionary_path(), encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except (OSError, UnicodeDecodeError):
+        return []
+    entries: list[tuple[str, str]] = []
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        spoken, _, replacement = line.partition("=")
+        spoken = " ".join(spoken.split())
+        replacement = replacement.strip()
+        if not spoken or not replacement:
+            continue
+        entries.append((spoken, replacement))
+    # Longest first, so "visual studio code" wins over "code".
+    entries.sort(key=lambda entry: len(entry[0]), reverse=True)
+    return entries[:DICTIONARY_MAX_ENTRIES]
+
+
+def spoken_pattern(spoken: str) -> str:
+    body = r"\s+".join(re.escape(word) for word in spoken.split())
+    lead = r"\b" if spoken[:1].isalnum() or spoken[:1] == "_" else ""
+    tail = r"\b" if spoken[-1:].isalnum() or spoken[-1:] == "_" else ""
+    return lead + body + tail
+
+
+def apply_dictionary(text: str, entries: list[tuple[str, str]]) -> str:
+    """Replace every entry in one pass, longest spoken form first.
+
+    One pass matters: applied one at a time, a later short entry ("code")
+    would match inside an earlier entry's replacement ("VS Code").
+    """
+    if not entries:
+        return text
+    groups = {f"d{i}": value for i, (_spoken, value) in enumerate(entries)}
+    pattern = "|".join(
+        f"(?P<d{i}>{spoken_pattern(spoken)})" for i, (spoken, _value) in enumerate(entries)
+    )
+
+    def replace(match: re.Match[str]) -> str:
+        # The replacement is returned as-is, so backslashes stay literal.
+        return groups[match.lastgroup or ""]
+
+    return re.sub(pattern, replace, text, flags=re.IGNORECASE)
+
+
 def fix_nouns(text: str) -> str:
     for pattern, repl in NOUN_REPLACEMENTS:
         text = re.sub(pattern, repl, text, flags=re.IGNORECASE)
-    return text
+    return apply_dictionary(text, load_dictionary())
 
 
 def host_is_local(url: str) -> bool:
