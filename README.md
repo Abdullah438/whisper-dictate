@@ -109,7 +109,7 @@ This project does not install keyboard shortcuts. Point your desktop at the scri
 
 ### Rewrite selection
 
-Highlight a sentence or paragraph, then run `rewrite-selection`. The script copies the selection, rewrites it with `mistral:7b`, and types the result over the highlight. Newlines are sent as Shift+Enter so chat apps such as WhatsApp do not send each line as its own message.
+Highlight a sentence or paragraph, then run `rewrite-selection`. The script copies the selection, rewrites it with `mistral:7b`, and types the result over the highlight. A newline in the text is typed as Enter.
 
 Use this for text you already wrote. Dictation cleanup stays a separate, stricter pass.
 
