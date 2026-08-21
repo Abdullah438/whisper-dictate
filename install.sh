@@ -8,6 +8,41 @@ if [[ "${EUID}" -eq 0 ]]; then
 fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Report what is missing before the user discovers it as silence.
+#
+# Most of these fail quietly at runtime: without notify-send every message
+# disappears, and without wl-copy DICTATE_INSERT=paste has nothing to paste.
+# This is a warning, not a gate — you may be installing before the packages.
+check_dependencies() {
+  local -a missing=()
+  local cmd note
+
+  while read -r cmd note; do
+    [[ -n "$cmd" ]] || continue
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+      missing+=("$(printf '%-14s %s' "$cmd" "$note")")
+    fi
+  done <<'DEPS'
+pw-cat records the microphone; dictation captures nothing without it
+whisper-cli transcribes; dictation cannot run at all without it
+ydotool types the transcript into the focused window
+python3 runs the polish, tray, and silence watchdog
+notify-send every notification is silently dropped without it
+wl-copy DICTATE_INSERT=paste has nothing to paste without it
+DEPS
+
+  if [[ "${#missing[@]}" -gt 0 ]]; then
+    echo "Missing commands:" >&2
+    printf '  %s\n' "${missing[@]}" >&2
+    echo >&2
+    echo "  See README.md for your distro's package names." >&2
+    echo >&2
+  fi
+}
+
+check_dependencies
+
 BIN_DIR="${HOME}/.local/bin"
 APP_DIR="${HOME}/.local/share/applications"
 MODEL_DIR="${WHISPER_MODEL_DIR:-${HOME}/.local/share/whisper.cpp/models}"

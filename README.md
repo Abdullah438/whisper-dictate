@@ -53,6 +53,25 @@ chmod +x install.sh bin/*
 
 That copies the scripts to `~/.local/bin`, installs a tray app (autostart), and user systemd units. Bind the scripts yourself in your desktop's shortcut settings.
 
+`install.sh` reports any missing commands before it copies anything, and keeps
+going — you can install it before the packages and fix them up afterwards.
+
+### On a new machine
+
+In order, none of which depends on this repo being the same checkout:
+
+1. Install the packages for your distro (below).
+2. Download a Whisper model, and the VAD model.
+3. `git clone` this repo and run `./install.sh`.
+4. Assign shortcuts to the **Whisper Dictation** and **Rewrite Selection**
+   entries the installer registers.
+5. `systemctl --user enable --now ydotool.service`, and add yourself to the
+   group that owns `/dev/uinput`.
+
+Your settings do not travel with the repo — they live in
+`~/.config/whisper-dictate/`. Copy `config` and `dictionary` across if you want
+the same behaviour, or let `install.sh` seed fresh ones from `contrib/`.
+
 ### Packages
 
 **Arch / CachyOS**
