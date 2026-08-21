@@ -1,0 +1,39 @@
+# ~/.config/whisper-dictate/config
+#
+# Sourced by dictate-toggle and rewrite-selection. A desktop global shortcut
+# starts those scripts without your shell environment, so this file — not
+# ~/.bashrc or ~/.zshrc — is where settings belong. An environment variable of
+# the same name still wins over anything here.
+#
+# Uncomment what you want to change. Full list: dictate-toggle --help
+
+# Whisper
+#WHISPER_LANG=en
+#WHISPER_MODEL="$HOME/.local/share/whisper.cpp/models/ggml-large-v3-turbo.bin"
+#WHISPER_TIMEOUT=120
+
+# Voice activity detection. "auto" uses the Silero model when it is present,
+# which removes most "Thank you." hallucinations on near-silent recordings.
+#WHISPER_VAD=auto
+
+# Local LLM cleanup
+#DICTATE_LLM=1
+#DICTATE_LLM_MODEL=mistral:7b
+
+# Stop a recording that has run this long, in case the stop shortcut is missed.
+#DICTATE_MAX_SECONDS=600
+
+# Hands-free stop: end the recording after this many seconds of silence.
+# 0 disables it. Try 2.5 with DICTATE_SILENCE_LEVEL around 350.
+#DICTATE_SILENCE_SECONDS=0
+#DICTATE_SILENCE_LEVEL=350
+
+# Typing
+#DICTATE_KEY_DELAY=8
+# Above this many characters, send Ctrl+V instead of typing key by key.
+# Faster and safe from editor autoindent, but Ctrl+V is not reliable in every
+# Wayland app. 0 disables it.
+#DICTATE_PASTE_THRESHOLD=0
+
+# Clipboard
+#DICTATE_CLIPBOARD=1
