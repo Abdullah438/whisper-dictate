@@ -86,3 +86,60 @@ def test_space_mode_joins_the_lines(typer):
 def test_the_scratch_file_does_not_outlive_the_typing(typer):
     typer("something private\nand more")
     assert not typer.scratch.exists()
+
+
+CTRL_V = "key 29:1 47:1 47:0 29:0"
+CTRL_SHIFT_V = "key 29:1 42:1 47:1 47:0 42:0 29:0"
+
+
+@pytest.fixture
+def inserter(tmp_path):
+    fakebin = tmp_path / "bin"
+    fakebin.mkdir()
+    tool = fakebin / "ydotool"
+    tool.write_text(FAKE_YDOTOOL)
+    tool.chmod(0o755)
+    log = tmp_path / "calls.log"
+    scratch = tmp_path / "scratch.txt"
+
+    def run(text: str, **env) -> list[str]:
+        log.write_text("")
+        subprocess.run(
+            ["bash", "-c",
+             f'source "{COMMON}"; dictate_insert_text "$1" "{scratch}" /dev/null', "_", text],
+            env={**os.environ, "PATH": f"{fakebin}:{os.environ['PATH']}",
+                 "YDOTOOL_LOG": str(log),
+                 "XDG_CONFIG_HOME": str(tmp_path / "config"), **env},
+            check=True, capture_output=True, text=True,
+        )
+        return log.read_text().splitlines()
+
+    return run
+
+
+def test_default_still_types(inserter):
+    assert inserter("hello there") == ["type hello there"]
+
+
+def test_paste_is_one_keystroke_regardless_of_length(inserter):
+    """The whole point: cost must not scale with the length of the transcript."""
+    short = inserter("hi", DICTATE_INSERT="paste")
+    long = inserter("word " * 400, DICTATE_INSERT="paste")
+    assert short == [CTRL_V]
+    assert long == [CTRL_V]
+
+
+def test_paste_key_can_be_the_terminal_chord(inserter):
+    assert inserter("hi", DICTATE_INSERT="paste", DICTATE_PASTE_KEY="ctrl+shift+v") == [CTRL_SHIFT_V]
+
+
+def test_paste_falls_back_to_typing_without_a_clipboard(inserter):
+    """Pasting reads the clipboard, so it cannot work when that is switched off."""
+    calls = inserter("hello", DICTATE_INSERT="paste", DICTATE_CLIPBOARD="0")
+    assert calls == ["type hello"]
+
+
+def test_paste_never_types_the_text(inserter):
+    """A stray type call would double-insert the transcript."""
+    calls = inserter("secret words\nsecond line", DICTATE_INSERT="paste")
+    assert not any(c.startswith("type") for c in calls)

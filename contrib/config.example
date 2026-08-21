@@ -33,7 +33,21 @@
 # only if that guesses wrong for you.
 #DICTATE_SILENCE_LEVEL=0
 
-# Typing
+# How the text gets into the focused window.
+#
+# "type" sends it one keystroke at a time. Universal, but it costs
+# DICTATE_KEY_DELAY + DICTATE_KEY_HOLD per character — about 16ms at the
+# defaults, so a 300-character transcript takes ~5 seconds to arrive, all of it
+# after the transcription has already finished.
+#
+# "paste" is a single keystroke no matter how long the text is. It needs the
+# clipboard on, and the chord is not universal: terminals want ctrl+shift+v,
+# and some password fields refuse paste entirely.
+#DICTATE_INSERT=type
+#DICTATE_PASTE_KEY=ctrl+v
+
+# Typing speed, when DICTATE_INSERT=type. 0 is as fast as ydotool will go, but
+# some apps drop or reorder characters when they arrive with no delay.
 #DICTATE_KEY_DELAY=8
 
 # How a line break is typed. ydotool sends a newline as Enter, and in a message
@@ -42,10 +56,6 @@
 # and behaves like Enter in a plain text field. Use "enter" if you only ever
 # dictate into editors, or "space" to join every line into one.
 #DICTATE_NEWLINE=shift-enter
-# Above this many characters, send Ctrl+V instead of typing key by key.
-# Faster and safe from editor autoindent, but Ctrl+V is not reliable in every
-# Wayland app. 0 disables it.
-#DICTATE_PASTE_THRESHOLD=0
 
 # Clipboard
 #DICTATE_CLIPBOARD=1

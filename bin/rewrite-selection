@@ -109,7 +109,7 @@ type_text() {
   release_modifiers
   sleep 0.2
   set_clipboard "$text"
-  dictate_type_text "$text" "$STATE_DIR/rewrite.txt" "$LOG"
+  dictate_insert_text "$text" "$STATE_DIR/rewrite.txt" "$LOG"
 }
 
 case "${1:-}" in
@@ -132,6 +132,8 @@ Environment:
   DICTATE_PRIMARY     1 to read the primary selection first (default), 0 for Ctrl+C only
   DICTATE_KEY_DELAY   ydotool key delay in ms (default: 8)
   DICTATE_NEWLINE     shift-enter (default), enter, or space
+  DICTATE_INSERT      type (default) or paste
+  DICTATE_PASTE_KEY   ctrl+v (default) or ctrl+shift+v
   YDOTOOL_SOCKET      ydotool socket
 EOF
     exit 0

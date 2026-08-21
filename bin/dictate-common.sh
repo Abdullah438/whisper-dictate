@@ -14,7 +14,7 @@ DICTATE_SETTINGS=(
   DICTATE_LLM DICTATE_LLM_MODEL DICTATE_LLM_HOST DICTATE_LLM_ALLOW_REMOTE
   DICTATE_CLIPBOARD DICTATE_CONTEXT DICTATE_CONTEXT_FILE DICTATE_DICTIONARY
   DICTATE_MAX_SECONDS DICTATE_SILENCE_SECONDS DICTATE_SILENCE_LEVEL
-  DICTATE_KEY_DELAY DICTATE_PASTE_THRESHOLD
+  DICTATE_KEY_DELAY DICTATE_NEWLINE DICTATE_INSERT DICTATE_PASTE_KEY
   YDOTOOL_SOCKET
 )
 
@@ -142,4 +142,37 @@ dictate_type_text() {
 
   # Never leave the transcript sitting in the runtime directory.
   rm -f "$scratch"
+}
+
+# Put text into the focused window, by typing it or by pasting it.
+#
+# Typing works everywhere but costs DICTATE_KEY_DELAY + DICTATE_KEY_HOLD per
+# character. At the default 8/8 that is ~16ms a character, so a 300-character
+# transcript spends about five seconds arriving — all of it *after* whisper.cpp
+# and the LLM have already finished, which is the part that feels wrong.
+#
+# Pasting is a single keystroke no matter how long the text is. It is not the
+# default because it is not universal: it needs the clipboard, terminals want
+# Ctrl+Shift+V rather than Ctrl+V, and some password and payment fields refuse
+# paste outright. DICTATE_INSERT=paste opts in, DICTATE_PASTE_KEY picks the
+# chord. The caller must have put the text on the clipboard already.
+dictate_insert_text() {
+  local text="$1"
+  local scratch="$2"
+  local log="${3:-/dev/null}"
+
+  if [[ "${DICTATE_INSERT:-type}" == "paste" ]] && [[ "${DICTATE_CLIPBOARD:-1}" != "0" ]]; then
+    case "${DICTATE_PASTE_KEY:-ctrl+v}" in
+      ctrl+shift+v)
+        # LeftCtrl, LeftShift, V down; then up in reverse.
+        ydotool key 29:1 42:1 47:1 47:0 42:0 29:0 >>"$log" 2>&1 || true
+        ;;
+      *)
+        ydotool key 29:1 47:1 47:0 29:0 >>"$log" 2>&1 || true
+        ;;
+    esac
+    return 0
+  fi
+
+  dictate_type_text "$text" "$scratch" "$log"
 }
