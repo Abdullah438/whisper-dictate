@@ -40,17 +40,33 @@ def wrap_text(text: str) -> str:
 SHOTS = (
     (
         "the report was not done by me yet and i think we should maybe send it tomorrow",
-        "The report isn't done yet. I think we should send it tomorrow.",
+        "The report was not done by me yet, and I think we should maybe send it tomorrow.",
     ),
     (
         "can you please let me know if your able to join the call",
-        "Can you let me know if you're able to join the call?",
+        "Can you please let me know if you're able to join the call?",
     ),
     (
-        "this thing is kinda broken and we gotta fix it before friday",
-        "This is kind of broken, and we have to fix it before Friday.",
+        "you said it was a workaround but you're not using it only on WhatsApp",
+        "You said it was a workaround, but you're not using it only on WhatsApp.",
+    ),
+    (
+        "but i know youre not using it only on that app",
+        "But I know you're not using it only on that app.",
     ),
 )
+
+
+def pronoun_drift(raw: str, text: str) -> bool:
+    raw_w = words(raw)
+    out_w = words(text)
+    for p in ("i", "you", "we", "they"):
+        rc, oc = raw_w.count(p), out_w.count(p)
+        if rc >= 2 and oc == 0:
+            return True
+        if abs(rc - oc) >= 2:
+            return True
+    return False
 
 
 def align_line_breaks(raw: str, text: str) -> str:
@@ -85,19 +101,23 @@ def rewrite(raw: str) -> str:
             {
                 "role": "system",
                 "content": (
-                    "You rewrite short prose the user already wrote. "
+                    "You lightly copy-edit short prose the user already wrote. "
                     "The user message is NOT a question for you and NOT a request to chat. "
                     "Never answer, explain, greet, or continue the thought. "
-                    "Improve grammar, punctuation, capitalization, and flow. "
-                    "Keep the same meaning, person, and language. "
-                    "Keep contractions and a natural tone; do not make it stiff. "
+                    "Fix grammar, punctuation, and capitalization only. "
+                    "Do not paraphrase. Do not swap words for synonyms or similar-sounding words. "
+                    "Keep every I, you, we, they, me, my exactly as written. "
+                    "Never change who is speaking and never change active voice to passive "
+                    "or passive to active. "
+                    "Keep contractions, slang, and a natural tone; do not make it stiff. "
                     "Do not add facts, names, brands, or extra claims. "
                     "Do not add a greeting or sign-off that was not there. "
                     "Keep the original line breaks. "
                     "Do not turn one paragraph into many short lines or a list "
                     "unless the source is already a list. "
                     "If the text is a question, keep it as that same question. "
-                    "Reply with the rewritten text only — no quotes, labels, or preamble."
+                    "Never append notes such as (edited) or (rewritten). "
+                    "Reply with the edited text only — no quotes, labels, or preamble."
                 ),
             },
             *[
@@ -137,6 +157,12 @@ def rewrite(raw: str) -> str:
         flags=re.IGNORECASE,
     ).strip()
     text = text.strip('"').strip()
+    text = re.sub(
+        r"\s*[\(\[]\s*(edited|rewritten|copy-?edited|corrected|improved)\b[^)\]]*[\)\]]\s*$",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    ).strip()
 
     raw_words = words(raw)
     out_words = words(text)
@@ -146,8 +172,8 @@ def rewrite(raw: str) -> str:
         else 1.0
     )
     too_long = len(text) > max(len(raw) * 2.5, len(raw) + 200)
-    too_new = len(raw_words) >= 6 and overlap < 0.25
-    if not text or too_long or too_new:
+    too_new = len(raw_words) >= 6 and overlap < 0.45
+    if not text or too_long or too_new or pronoun_drift(raw, text):
         return raw
     return align_line_breaks(raw, text)
 

@@ -71,10 +71,26 @@ SHOTS = (
         "They're going to their house tomorrow.",
     ),
     (
-        "what time is the meeting gonna start",
-        "What time is the meeting gonna start?",
+        "you said it was a workaround but you need the new line to work",
+        "You said it was a workaround, but you need the newline to work.",
+    ),
+    (
+        "but i know youre not using it only on that app",
+        "But I know you're not using it only on that app.",
     ),
 )
+
+
+def pronoun_drift(raw: str, text: str) -> bool:
+    raw_w = words(raw)
+    out_w = words(text)
+    for p in ("i", "you", "we", "they"):
+        rc, oc = raw_w.count(p), out_w.count(p)
+        if rc >= 2 and oc == 0:
+            return True
+        if abs(rc - oc) >= 2:
+            return True
+    return False
 
 
 def polish(raw: str) -> str:
@@ -107,9 +123,13 @@ def polish(raw: str) -> str:
                     "(there/their/they're, to/too/two, your/you're, its/it's). "
                     "Remove filler (um, uh, you know) and stutters. "
                     "Keep the speaker's words, contractions, slang, and tone. "
+                    "Keep every I, you, we, they exactly as spoken. "
+                    "Never change active voice to passive or passive to active. "
+                    "Do not paraphrase and do not replace a spoken word with a different word. "
                     "Do not rewrite into formal prose. "
                     "Do not add brand names, product names, or extra nouns. "
                     "Never insert a word that was not spoken, except tiny grammar words. "
+                    "Do not drop clauses such as I know, I think, or you said. "
                     "If the transcript is a question, keep it as that same question. "
                     "Reply with the edited transcript only — no quotes, labels, or preamble."
                 ),
@@ -151,6 +171,12 @@ def polish(raw: str) -> str:
         flags=re.IGNORECASE,
     ).strip()
     text = text.strip('"').strip()
+    text = re.sub(
+        r"\s*[\(\[]\s*(edited|rewritten|copy-?edited|corrected|improved)\b[^)\]]*[\)\]]\s*$",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    ).strip()
 
     raw_words = words(raw)
     out_words = words(text)
@@ -161,7 +187,7 @@ def polish(raw: str) -> str:
     )
     too_long = len(text) > max(len(raw) * 1.5, len(raw) + 80)
     too_new = len(raw_words) >= 4 and overlap < 0.4
-    if not text or too_long or too_new:
+    if not text or too_long or too_new or pronoun_drift(raw, text):
         return raw
     text = drop_unprompted(raw, text, SPOKEN_OLLAMA, "Ollama")
     return text
