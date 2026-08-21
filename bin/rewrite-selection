@@ -14,7 +14,6 @@ source "$SELF_DIR/dictate-common.sh"
 STATE_DIR="${XDG_RUNTIME_DIR:-/tmp}/whisper-dictate"
 LLM_MODEL="${DICTATE_LLM_MODEL:-mistral:7b}"
 LLM_HOST="${DICTATE_LLM_HOST:-http://127.0.0.1:11434}"
-KEY_DELAY="${DICTATE_KEY_DELAY:-8}"
 USE_PRIMARY="${DICTATE_PRIMARY:-1}"
 YDOTOOL_SOCKET="${YDOTOOL_SOCKET:-${XDG_RUNTIME_DIR:-/tmp}/.ydotool_socket}"
 REWRITE_BIN="${SELF_DIR}/rewrite-text.py"
@@ -107,17 +106,10 @@ copy_selection() {
 
 type_text() {
   local text="$1"
-  local paste_file="$STATE_DIR/rewrite.txt"
   release_modifiers
   sleep 0.2
   set_clipboard "$text"
-
-  # Same path as dictation: ydotool types the file, and a newline is Enter.
-  printf '%s' "$text" >"$paste_file"
-  chmod 600 "$paste_file" 2>/dev/null || true
-  ydotool type --key-delay "$KEY_DELAY" --key-hold "$KEY_DELAY" --file "$paste_file" \
-    >>"$LOG" 2>&1 || true
-  rm -f "$paste_file"
+  dictate_type_text "$text" "$STATE_DIR/rewrite.txt" "$LOG"
 }
 
 case "${1:-}" in
@@ -139,6 +131,7 @@ Environment:
   DICTATE_LLM_HOST    Ollama host (default: http://127.0.0.1:11434)
   DICTATE_PRIMARY     1 to read the primary selection first (default), 0 for Ctrl+C only
   DICTATE_KEY_DELAY   ydotool key delay in ms (default: 8)
+  DICTATE_NEWLINE     shift-enter (default), enter, or space
   YDOTOOL_SOCKET      ydotool socket
 EOF
     exit 0
