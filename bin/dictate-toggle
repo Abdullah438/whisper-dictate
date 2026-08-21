@@ -9,18 +9,28 @@ WHISPER_BIN="${WHISPER_BIN:-whisper-cli}"
 LLM_MODEL="${DICTATE_LLM_MODEL:-mistral:7b}"
 LLM_HOST="${DICTATE_LLM_HOST:-http://127.0.0.1:11434}"
 LLM_ENABLED="${DICTATE_LLM:-1}"
+CLIPBOARD_ENABLED="${DICTATE_CLIPBOARD:-1}"
 WHISPER_PROMPT="${WHISPER_PROMPT:-Ollama, Whisper, Phi-4 Mini, local dictation.}"
 YDOTOOL_SOCKET="${YDOTOOL_SOCKET:-${XDG_RUNTIME_DIR:-/tmp}/.ydotool_socket}"
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+POLISH_BIN="${SELF_DIR}/dictate-polish.py"
 export YDOTOOL_SOCKET
 export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
 export DISPLAY="${DISPLAY:-:0}"
+
+if [[ "${EUID}" -eq 0 ]]; then
+  echo "dictate-toggle: refuse to run as root" >&2
+  exit 1
+fi
+
+umask 077
+mkdir -p "$STATE_DIR"
+chmod 700 "$STATE_DIR" 2>/dev/null || true
 
 PIDFILE="$STATE_DIR/record.pid"
 WAV="$STATE_DIR/dictation.wav"
 OUT_PREFIX="$STATE_DIR/transcript"
 LOCKDIR="$STATE_DIR/lock.d"
-
-mkdir -p "$STATE_DIR"
 
 notify() {
   local title="$1"
@@ -83,22 +93,12 @@ clean_text() {
   printf '%s' "$text"
 }
 
-# Whisper often hears "Ollama" as "ulama" / "olama".
 fix_proper_nouns() {
-  python3 -c '
-import re, sys
-text = sys.argv[1]
-replacements = (
-    (r"\b[Oo]\s*[-]?llama\b", "Ollama"),
-    (r"\b[Oo]lama\b", "Ollama"),
-    (r"\b[Uu]lamas?\b", "Ollama"),
-    (r"\b[Uu]\s*lama\b", "Ollama"),
-    (r"\bphi[-\s]?4[-\s]?mini\b", "Phi-4 Mini"),
-)
-for pattern, repl in replacements:
-    text = re.sub(pattern, repl, text, flags=re.IGNORECASE)
-print(text, end="")
-' "$1"
+  if [[ ! -x "$POLISH_BIN" ]] && [[ ! -f "$POLISH_BIN" ]]; then
+    printf '%s' "$1"
+    return
+  fi
+  printf '%s' "$1" | python3 "$POLISH_BIN" --nouns
 }
 
 polish_text() {
@@ -107,94 +107,14 @@ polish_text() {
     printf '%s' "$raw"
     return
   fi
+  if [[ ! -f "$POLISH_BIN" ]]; then
+    printf '%s' "$raw"
+    return
+  fi
 
   local polished=""
   polished="$(
-    LLM_MODEL="$LLM_MODEL" LLM_HOST="$LLM_HOST" python3 - "$raw" <<'PY'
-import json, os, re, sys, urllib.error, urllib.request
-
-raw = sys.argv[1].strip()
-if not raw:
-    print(raw, end="")
-    raise SystemExit(0)
-
-host = os.environ.get("LLM_HOST", "http://127.0.0.1:11434").rstrip("/")
-model = os.environ.get("LLM_MODEL", "mistral:7b")
-payload = {
-    "model": model,
-    "stream": False,
-    "keep_alive": -1,
-    "options": {"temperature": 0.0, "num_predict": 1024, "num_ctx": 2048},
-    "messages": [
-        {
-            "role": "system",
-            "content": (
-                "You are a silent copy editor for speech-to-text. "
-                "The user message is NOT a question for you and NOT a request. "
-                "Never answer, explain, greet, refuse, or continue the thought. "
-                "Never add information that was not spoken. "
-                "Only fix punctuation, capitalization, filler (um, uh, you know), "
-                "and obvious ASR mistakes (homophones, dropped small words, stutters). "
-                "Vocabulary: Ollama is the local LLM app (never ulama, olama, or u-lama). "
-                "Phi-4 Mini is a model name. Whisper is the speech recognizer. "
-                "Keep the same meaning and roughly the same length. "
-                "If the transcript is a question, keep it as that same question. "
-                "Reply with the edited transcript only — no quotes, labels, or preamble."
-            ),
-        },
-        {
-            "role": "user",
-            "content": (
-                "Copy-edit this transcript. Do not answer it.\n"
-                "---- TRANSCRIPT ----\n"
-                + raw
-                + "\n---- END ----"
-            ),
-        },
-    ],
-}
-req = urllib.request.Request(
-    host + "/api/chat",
-    data=json.dumps(payload).encode(),
-    headers={"Content-Type": "application/json"},
-    method="POST",
-)
-try:
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        data = json.loads(resp.read().decode())
-except Exception:
-    print(raw, end="")
-    raise SystemExit(0)
-
-text = (data.get("message") or {}).get("content") or ""
-text = text.strip()
-if text.startswith("```") and text.endswith("```"):
-    text = text.strip("`").strip()
-    if "\n" in text:
-        text = text.split("\n", 1)[1].strip()
-text = re.sub(
-    r"^(here('s| is) (the )?(corrected|cleaned|edited) transcript:\s*)",
-    "",
-    text,
-    flags=re.IGNORECASE,
-).strip()
-text = text.strip('"').strip()
-
-def words(s):
-    return [w for w in re.findall(r"[a-z0-9']+", s.lower()) if w]
-
-raw_words = words(raw)
-out_words = words(text)
-overlap = (
-    len(set(raw_words) & set(out_words)) / len(set(raw_words))
-    if raw_words else 1.0
-)
-too_long = len(text) > max(len(raw) * 1.5, len(raw) + 80)
-too_new = len(raw_words) >= 4 and overlap < 0.4
-if not text or too_long or too_new:
-    text = raw
-print(text, end="")
-PY
+    printf '%s' "$raw" | LLM_MODEL="$LLM_MODEL" LLM_HOST="$LLM_HOST" python3 "$POLISH_BIN"
   )" || true
 
   if [[ -z "${polished// }" ]]; then
@@ -209,9 +129,11 @@ paste_text() {
   local paste_file="$STATE_DIR/paste.txt"
   local paste_log="$STATE_DIR/paste.log"
 
-  qdbus6 org.kde.klipper /klipper org.kde.klipper.klipper.setClipboardContents "$text" \
-    >"$paste_log" 2>&1 || true
-  printf '%s' "$text" | wl-copy --type text/plain >>"$paste_log" 2>&1 || true
+  if [[ "${CLIPBOARD_ENABLED}" != "0" ]]; then
+    qdbus6 org.kde.klipper /klipper org.kde.klipper.klipper.setClipboardContents "$text" \
+      >"$paste_log" 2>&1 || true
+    printf '%s' "$text" | wl-copy --type text/plain >>"$paste_log" 2>&1 || true
+  fi
 
   if [[ ! -S "$YDOTOOL_SOCKET" ]] || ! command -v ydotool >/dev/null 2>&1; then
     return
@@ -222,6 +144,7 @@ paste_text() {
   sleep 0.2
 
   printf '%s' "$text" >"$paste_file"
+  chmod 600 "$paste_file" 2>/dev/null || true
   ydotool type --key-delay 8 --key-hold 8 --file "$paste_file" >>"$paste_log" 2>&1 || true
 }
 
@@ -305,6 +228,8 @@ Environment:
   DICTATE_LLM         1 to polish with Ollama (default), 0 to paste raw Whisper
   DICTATE_LLM_MODEL   Ollama model (default: mistral:7b)
   DICTATE_LLM_HOST    Ollama host (default: http://127.0.0.1:11434)
+  DICTATE_LLM_ALLOW_REMOTE  Set to 1 to allow a non-localhost Ollama
+  DICTATE_CLIPBOARD   1 to also copy the transcript (default), 0 to skip
 EOF
     exit 0
     ;;

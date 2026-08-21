@@ -33,6 +33,8 @@ Default model order:
 
 On KDE Plasma Wayland, clipboard paste (`Ctrl+V`) is unreliable from a global shortcut. This stack types with `ydotool` instead.
 
+Read **[SECURITY.md](SECURITY.md)** before enabling `ydotool` or `/dev/uinput`. That daemon can type into any focused window, including terminals and password fields.
+
 ## Install
 
 ```bash
@@ -68,8 +70,10 @@ Package names vary. You need `whisper-cli` (or a whisper.cpp build), `ydotool`, 
 
 ```bash
 mkdir -p ~/.local/share/whisper.cpp/models
-curl -L --output ~/.local/share/whisper.cpp/models/ggml-large-v3-turbo.bin \
+curl -L --fail --output ~/.local/share/whisper.cpp/models/ggml-large-v3-turbo.bin \
   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin
+sha256sum ~/.local/share/whisper.cpp/models/ggml-large-v3-turbo.bin
+# expected: 1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69
 ```
 
 `large-v3-turbo` is about 1.6 GB. Full `ggml-large-v3.bin` (~3.1 GB) is a bit more accurate and a lot slower; turbo is the better default for dictation.
@@ -93,7 +97,7 @@ The installer writes `~/.config/systemd/user/ydotool.service.d/socket.conf` so `
 systemctl --user enable --now ydotool.service
 ```
 
-You also need write access to `/dev/uinput` (often the `input` group, or the udev rule shipped with `ydotool`). Log out after a group change.
+You also need write access to `/dev/uinput` (often the `input` group, or the udev rule shipped with `ydotool`). Log out after a group change. Do not `chmod 666 /dev/uinput`.
 
 ### Optional: Ollama polish
 
@@ -140,19 +144,46 @@ Set `DICTATE_LLM=0` if you want raw Whisper text with no local LLM.
 | `YDOTOOL_SOCKET` | `$XDG_RUNTIME_DIR/.ydotool_socket` | ydotoold socket |
 | `DICTATE_LLM` | `1` | `0` skips Ollama |
 | `DICTATE_LLM_MODEL` | `mistral:7b` | Cleanup model |
-| `DICTATE_LLM_HOST` | `http://127.0.0.1:11434` | Ollama API |
+| `DICTATE_LLM_HOST` | `http://127.0.0.1:11434` | Ollama API (localhost only unless `DICTATE_LLM_ALLOW_REMOTE=1`) |
+| `DICTATE_CLIPBOARD` | `1` | `0` skips Klipper / `wl-copy` |
+
+## Security
+
+This is local dictation, not a cloud service. It still has real privileges:
+
+- **Keystroke injection.** `ydotool` types into the focused window. Confirm focus before the second press.
+- **Microphone.** Recording runs until you press the shortcut again.
+- **Clipboard history.** Disable with `DICTATE_CLIPBOARD=0` if you do not want transcripts in Klipper.
+- **No root.** The installer and the hotkey refuse to run as root.
+- **Local LLM only.** Polish is sent to loopback unless you explicitly allow a remote host.
+
+Details, checksums, and how to report issues: [SECURITY.md](SECURITY.md).
 
 ## Layout
 
 ```
 bin/dictate-toggle              # hotkey entrypoint
+bin/dictate-polish.py           # copy-edit + proper-noun fixes (stdin only)
 bin/dictate-llm-keepalive       # ping Ollama so the model stays resident
 contrib/local.dictate-toggle.desktop
 contrib/systemd/                # user units + ydotool socket drop-in
 contrib/ollama/                 # optional system pin for mistral:7b
 install.sh
+LICENSE
+SECURITY.md
 ```
 
 ## License
 
-MIT. Whisper weights and Ollama models have their own licenses; this repo does not vendor them.
+[MIT](LICENSE) for this repository (scripts, units, docs), copyright Abdullah Khan, 2026.
+
+Third-party pieces you install yourself are not covered by that MIT grant:
+
+| Component | Typical license | Notes |
+| --- | --- | --- |
+| OpenAI Whisper weights (`ggml-*.bin`) | MIT (OpenAI) | Downloaded from Hugging Face / whisper.cpp |
+| whisper.cpp | MIT | Distro package or upstream build |
+| `ydotool` | AGPL-3.0 | Keystroke injection helper |
+| Mistral 7B via Ollama | Apache-2.0 (model) | Optional polish only |
+
+Do not dictate secrets. See [SECURITY.md](SECURITY.md).

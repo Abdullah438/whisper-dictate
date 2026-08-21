@@ -4,3 +4,5 @@
 models/
 *.bin
 .env
+__pycache__/
+*.pyc

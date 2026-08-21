@@ -2,6 +2,11 @@
 # Install Whisper Dictation into the current user account.
 set -euo pipefail
 
+if [[ "${EUID}" -eq 0 ]]; then
+  echo "install.sh: refuse to run as root; install as your desktop user" >&2
+  exit 1
+fi
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN_DIR="${HOME}/.local/bin"
 APP_DIR="${HOME}/.local/share/applications"
@@ -14,6 +19,7 @@ mkdir -p "$BIN_DIR" "$APP_DIR" "$MODEL_DIR" "$UNIT_DIR" "$YDOTOOL_DROPIN"
 
 install -m 0755 "$ROOT/bin/dictate-toggle" "$BIN_DIR/dictate-toggle"
 install -m 0755 "$ROOT/bin/dictate-llm-keepalive" "$BIN_DIR/dictate-llm-keepalive"
+install -m 0755 "$ROOT/bin/dictate-polish.py" "$BIN_DIR/dictate-polish.py"
 
 sed "s|^Exec=.*|Exec=${BIN_DIR}/dictate-toggle|" \
   "$ROOT/contrib/local.dictate-toggle.desktop" >"$APP_DIR/$DESKTOP_ID"
