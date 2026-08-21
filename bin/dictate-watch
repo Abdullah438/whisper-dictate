@@ -1,0 +1,179 @@
+#!/usr/bin/env python3
+"""Watch an in-progress dictation and stop it on a time cap or on silence.
+
+Started by dictate-toggle when recording begins. It reads the growing WAV that
+pw-cat is writing, and runs `dictate-toggle` (the normal stop path) when the
+recording has run too long or the speaker has stopped talking. Without it, a
+shortcut press that never lands leaves the microphone recording into tmpfs.
+"""
+from __future__ import annotations
+
+import array
+import os
+import subprocess
+import sys
+import time
+
+RATE = 16000
+BYTES_PER_SAMPLE = 2
+WAV_HEADER = 44
+POLL_SECONDS = 0.25
+# Silence only counts once the speaker has actually said something, so a slow
+# start does not stop the recording before it begins.
+SPEECH_LEVEL_MARGIN = 2.0
+
+
+def state_dir() -> str:
+    return os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/tmp", "whisper-dictate")
+
+
+def toggle_bin() -> str:
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidate = os.path.join(here, "dictate-toggle")
+    return candidate if os.path.isfile(candidate) else "dictate-toggle"
+
+
+def env_float(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, "").strip() or default)
+    except ValueError:
+        return default
+
+
+def recorder_alive(pidfile: str) -> bool:
+    try:
+        with open(pidfile, encoding="utf-8") as fh:
+            pid = int(fh.read().strip())
+    except (OSError, ValueError):
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    try:
+        with open(f"/proc/{pid}/comm", encoding="utf-8") as fh:
+            return fh.read().strip() == "pw-cat"
+    except OSError:
+        return True
+
+
+def rms(chunk: bytes) -> float | None:
+    usable = len(chunk) - (len(chunk) % BYTES_PER_SAMPLE)
+    if usable <= 0:
+        return None
+    samples = array.array("h")
+    samples.frombytes(chunk[:usable])
+    if sys.byteorder == "big":
+        samples.byteswap()
+    total = 0
+    for value in samples:
+        total += value * value
+    return (total / len(samples)) ** 0.5
+
+
+def read_at(wav: str, start: int, length: int) -> bytes | None:
+    try:
+        with open(wav, "rb") as fh:
+            fh.seek(start)
+            return fh.read(length)
+    except OSError:
+        return None
+
+
+def tail_rms(wav: str, seconds: float) -> float | None:
+    """RMS of the last `seconds` of recorded audio, or None if too short."""
+    want = int(RATE * seconds) * BYTES_PER_SAMPLE
+    try:
+        size = os.path.getsize(wav)
+    except OSError:
+        return None
+    audio = size - WAV_HEADER
+    if audio < want or want <= 0:
+        return None
+    # Keep the offset sample-aligned so the frames are not read half a sample off.
+    start = WAV_HEADER + ((audio - want) // BYTES_PER_SAMPLE) * BYTES_PER_SAMPLE
+    chunk = read_at(wav, start, want)
+    return None if chunk is None else rms(chunk)
+
+
+def fresh_rms(wav: str, cursor: int) -> tuple[float | None, int]:
+    """RMS of everything recorded since `cursor`, and the new cursor.
+
+    Speech has to be looked for across all of the audio, not just the trailing
+    window: the window the silence check reads is silent by definition, so it
+    can never be the thing that proves the speaker started.
+    """
+    try:
+        size = os.path.getsize(wav)
+    except OSError:
+        return None, cursor
+    start = max(cursor, WAV_HEADER)
+    if size < start:  # a new recording reused the file
+        return None, WAV_HEADER
+    length = ((size - start) // BYTES_PER_SAMPLE) * BYTES_PER_SAMPLE
+    if length <= 0:
+        return None, start
+    chunk = read_at(wav, start, length)
+    if chunk is None:
+        return None, start
+    return rms(chunk), start + length
+
+
+def duration(wav: str) -> float:
+    try:
+        return max(0.0, (os.path.getsize(wav) - WAV_HEADER) / (RATE * BYTES_PER_SAMPLE))
+    except OSError:
+        return 0.0
+
+
+def stop(reason: str) -> None:
+    subprocess.Popen(
+        [toggle_bin()],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+        env={**os.environ, "DICTATE_STOP_REASON": reason},
+    )
+
+
+def main() -> int:
+    root = state_dir()
+    wav = os.path.join(root, "dictation.wav")
+    pidfile = os.path.join(root, "record.pid")
+
+    max_seconds = env_float("DICTATE_MAX_SECONDS", 600.0)
+    silence_seconds = env_float("DICTATE_SILENCE_SECONDS", 0.0)
+    silence_level = env_float("DICTATE_SILENCE_LEVEL", 350.0)
+
+    if max_seconds <= 0 and silence_seconds <= 0:
+        return 0
+
+    heard_speech = False
+    cursor = WAV_HEADER
+    while True:
+        time.sleep(POLL_SECONDS)
+        if not recorder_alive(pidfile):
+            return 0
+
+        if max_seconds > 0 and duration(wav) >= max_seconds:
+            stop("max-seconds")
+            return 0
+
+        if silence_seconds <= 0:
+            continue
+
+        level, cursor = fresh_rms(wav, cursor)
+        if level is not None and level >= silence_level * SPEECH_LEVEL_MARGIN:
+            heard_speech = True
+        if not heard_speech:
+            continue
+
+        tail = tail_rms(wav, silence_seconds)
+        if tail is not None and tail < silence_level:
+            stop("silence")
+            return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

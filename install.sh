@@ -17,15 +17,26 @@ DESKTOP_ID="local.dictate-toggle.desktop"
 TRAY_DESKTOP_ID="local.dictate-tray.desktop"
 REWRITE_DESKTOP_ID="local.rewrite-selection.desktop"
 AUTOSTART_DIR="${HOME}/.config/autostart"
+CONFIG_DIR="${XDG_CONFIG_HOME:-${HOME}/.config}/whisper-dictate"
 
-mkdir -p "$BIN_DIR" "$APP_DIR" "$MODEL_DIR" "$UNIT_DIR" "$YDOTOOL_DROPIN" "$AUTOSTART_DIR"
+mkdir -p "$BIN_DIR" "$APP_DIR" "$MODEL_DIR" "$UNIT_DIR" "$YDOTOOL_DROPIN" \
+  "$AUTOSTART_DIR" "$CONFIG_DIR"
 
+install -m 0644 "$ROOT/bin/dictate-common.sh" "$BIN_DIR/dictate-common.sh"
 install -m 0755 "$ROOT/bin/dictate-toggle" "$BIN_DIR/dictate-toggle"
+install -m 0755 "$ROOT/bin/dictate-watch" "$BIN_DIR/dictate-watch"
 install -m 0755 "$ROOT/bin/dictate-llm-keepalive" "$BIN_DIR/dictate-llm-keepalive"
 install -m 0755 "$ROOT/bin/dictate-polish.py" "$BIN_DIR/dictate-polish.py"
 install -m 0755 "$ROOT/bin/dictate-tray" "$BIN_DIR/dictate-tray"
 install -m 0755 "$ROOT/bin/rewrite-selection" "$BIN_DIR/rewrite-selection"
 install -m 0755 "$ROOT/bin/rewrite-text.py" "$BIN_DIR/rewrite-text.py"
+
+# Never overwrite settings the user has already edited.
+for sample in config dictionary; do
+  if [[ ! -e "$CONFIG_DIR/$sample" ]]; then
+    install -m 0600 "$ROOT/contrib/${sample}.example" "$CONFIG_DIR/$sample"
+  fi
+done
 
 sed "s|^Exec=.*|Exec=${BIN_DIR}/dictate-toggle|" \
   "$ROOT/contrib/local.dictate-toggle.desktop" >"$APP_DIR/$DESKTOP_ID"
@@ -58,6 +69,7 @@ echo "Installed scripts to ${BIN_DIR}"
 echo "Installed dictation launcher to ${APP_DIR}/${DESKTOP_ID}"
 echo "Installed rewrite launcher to ${APP_DIR}/${REWRITE_DESKTOP_ID}"
 echo "Installed tray icon (autostarts on login) to ${AUTOSTART_DIR}/${TRAY_DESKTOP_ID}"
+echo "Settings and dictionary live in ${CONFIG_DIR}"
 echo
 echo "Bind these in your desktop's custom shortcuts:"
 echo "  Dictation:  ${BIN_DIR}/dictate-toggle"

@@ -1,0 +1,14 @@
+# ~/.config/whisper-dictate/dictionary
+#
+# Names, jargon, and spellings Whisper keeps getting wrong.
+#   spoken form = replacement
+#
+# The left side is matched whole-word and case-insensitively, and may be
+# several words. Longer entries are applied first. Applied after LLM cleanup,
+# so it always wins.
+
+#kubernetes = Kubernetes
+#pipe wire = PipeWire
+#why do tool = ydotool
+#weyland = Wayland
+#see mac = CMake

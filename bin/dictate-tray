@@ -84,7 +84,7 @@ def toggle_bin() -> str:
     return "dictate-toggle"
 
 
-def pid_alive(pidfile: str) -> bool:
+def pid_alive(pidfile: str, comm: str | None = None) -> bool:
     try:
         with open(pidfile, encoding="utf-8") as fh:
             pid = int(fh.read().strip())
@@ -94,7 +94,14 @@ def pid_alive(pidfile: str) -> bool:
         os.kill(pid, 0)
     except OSError:
         return False
-    return True
+    if comm is None:
+        return True
+    # Guard against PID reuse pointing at some unrelated process.
+    try:
+        with open(f"/proc/{pid}/comm", encoding="utf-8") as fh:
+            return fh.read().strip() == comm
+    except OSError:
+        return True
 
 
 class DictationTray:
@@ -106,9 +113,12 @@ class DictationTray:
 
     def current_state(self) -> str:
         root = state_dir()
-        if pid_alive(os.path.join(root, "record.pid")):
+        if pid_alive(os.path.join(root, "record.pid"), comm="pw-cat"):
             return "recording"
-        if os.path.isdir(os.path.join(root, "lock.d")):
+        lock = os.path.join(root, "lock.d")
+        # A lock whose owner died is stale; showing "busy" forever would hide
+        # the fact that the next click will recover on its own.
+        if os.path.isdir(lock) and pid_alive(os.path.join(lock, "pid")):
             return "busy"
         return "idle"
 
@@ -170,17 +180,23 @@ class DictationTray:
             self.emit("NewStatus", GLib.Variant("(s)", (status,)))
         return True
 
-    def toggle(self) -> None:
-        if self.current_state() == "busy":
-            return
+    def run_toggle(self, *args: str) -> None:
         subprocess.Popen(
-            [toggle_bin()],
+            [toggle_bin(), *args],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
         )
         GLib.timeout_add(150, self.refresh)
+
+    def toggle(self) -> None:
+        if self.current_state() == "busy":
+            return
+        self.run_toggle()
+
+    def cancel(self) -> None:
+        self.run_toggle("--cancel")
 
     def popup_menu(self, _x: int, _y: int) -> None:
         menu = Gtk.Menu()
@@ -192,9 +208,13 @@ class DictationTray:
         toggle_item = Gtk.MenuItem(label=label)
         toggle_item.set_sensitive(self.current_state() != "busy")
         toggle_item.connect("activate", lambda *_: self.toggle())
+        cancel_item = Gtk.MenuItem(label="Cancel and discard")
+        cancel_item.set_sensitive(self.current_state() == "recording")
+        cancel_item.connect("activate", lambda *_: self.cancel())
         quit_item = Gtk.MenuItem(label="Quit tray")
         quit_item.connect("activate", lambda *_: Gtk.main_quit())
         menu.append(toggle_item)
+        menu.append(cancel_item)
         menu.append(Gtk.SeparatorMenuItem())
         menu.append(quit_item)
         menu.show_all()

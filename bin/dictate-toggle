@@ -1,19 +1,35 @@
 #!/usr/bin/env bash
-# Toggle local dictation: first press records, second press transcribes and pastes.
+# Toggle local dictation: first press records, second press transcribes and types.
+# shellcheck source-path=SCRIPTDIR
 set -euo pipefail
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ ! -r "$SELF_DIR/dictate-common.sh" ]]; then
+  echo "dictate-toggle: missing $SELF_DIR/dictate-common.sh" >&2
+  exit 1
+fi
+# shellcheck source=dictate-common.sh
+source "$SELF_DIR/dictate-common.sh"
 
 STATE_DIR="${XDG_RUNTIME_DIR:-/tmp}/whisper-dictate"
 MODEL_DIR="${WHISPER_MODEL_DIR:-$HOME/.local/share/whisper.cpp/models}"
-LANG="${WHISPER_LANG:-en}"
+# Not LANG: that is the process locale, and assigning it here would hand every
+# child (whisper-cli, python3, notify-send) an invalid locale such as "en".
+WHISPER_LANGUAGE="${WHISPER_LANG:-en}"
 WHISPER_BIN="${WHISPER_BIN:-whisper-cli}"
+WHISPER_PROMPT="${WHISPER_PROMPT:-}"
+WHISPER_VAD="${WHISPER_VAD:-auto}"
+WHISPER_VAD_MODEL="${WHISPER_VAD_MODEL:-$MODEL_DIR/ggml-silero-v5.1.2.bin}"
+WHISPER_TIMEOUT="${WHISPER_TIMEOUT:-120}"
 LLM_MODEL="${DICTATE_LLM_MODEL:-mistral:7b}"
 LLM_HOST="${DICTATE_LLM_HOST:-http://127.0.0.1:11434}"
 LLM_ENABLED="${DICTATE_LLM:-1}"
 CLIPBOARD_ENABLED="${DICTATE_CLIPBOARD:-1}"
-WHISPER_PROMPT="${WHISPER_PROMPT:-}"
+KEY_DELAY="${DICTATE_KEY_DELAY:-8}"
+PASTE_THRESHOLD="${DICTATE_PASTE_THRESHOLD:-0}"
 YDOTOOL_SOCKET="${YDOTOOL_SOCKET:-${XDG_RUNTIME_DIR:-/tmp}/.ydotool_socket}"
-SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 POLISH_BIN="${SELF_DIR}/dictate-polish.py"
+WATCH_BIN="${SELF_DIR}/dictate-watch"
 export YDOTOOL_SOCKET
 export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
 export DISPLAY="${DISPLAY:-:0}"
@@ -31,6 +47,8 @@ PIDFILE="$STATE_DIR/record.pid"
 WAV="$STATE_DIR/dictation.wav"
 OUT_PREFIX="$STATE_DIR/transcript"
 LOCKDIR="$STATE_DIR/lock.d"
+
+export DICTATE_CONTEXT_FILE="${DICTATE_CONTEXT_FILE:-$STATE_DIR/recent.json}"
 
 notify() {
   local title="$1"
@@ -63,23 +81,70 @@ pick_model() {
   return 1
 }
 
+# A bare PID is not proof: after PID reuse this would match an unrelated
+# process, and the stop path would then kill it.
+recorder_alive() {
+  local pid="${1:-}"
+  [[ -n "$pid" ]] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  local comm=""
+  comm="$(cat "/proc/$pid/comm" 2>/dev/null || true)"
+  [[ -z "$comm" || "$comm" == "pw-cat" ]]
+}
+
+recorder_pid() {
+  cat "$PIDFILE" 2>/dev/null || true
+}
+
 is_recording() {
   [[ -f "$PIDFILE" ]] || return 1
-  local pid
-  pid="$(cat "$PIDFILE" 2>/dev/null || true)"
-  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
+  recorder_alive "$(recorder_pid)"
+}
+
+stop_recorder() {
+  local pid="${1:-}"
+  [[ -n "$pid" ]] || return 0
+  kill -INT "$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+  local _
+  for _ in $(seq 1 20); do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.05
+  done
+  kill -KILL "$pid" 2>/dev/null || true
 }
 
 start_recording() {
   rm -f "$WAV" "$PIDFILE" "$OUT_PREFIX.txt"
-  # New session + closed lock fd so the recorder cannot pin the mutex
-  # (that previously made the second hotkey hang forever).
-  setsid pw-cat --record --format s16 --rate 16000 --channels 1 \
-    --media-role Communication "$WAV" </dev/null >/dev/null 2>&1 &
-  local pid=$!
-  disown "$pid" 2>/dev/null || true
+  # New session so closing the launching terminal cannot hang up the recorder.
+  # The inner shell reports pw-cat's own PID: plain `setsid pw-cat &` reports
+  # setsid's PID instead whenever setsid forks.
+  local pid=""
+  # shellcheck disable=SC2016  # $1 and $! must be expanded by the inner shell
+  pid="$(setsid bash -c 'pw-cat --record --format s16 --rate 16000 --channels 1 \
+      --media-role Communication "$1" </dev/null >/dev/null 2>&1 & echo $!' _ "$WAV")"
   echo "$pid" >"$PIDFILE"
+
+  # Enforces DICTATE_MAX_SECONDS, and stops on silence when that is enabled.
+  if [[ -x "$WATCH_BIN" || -f "$WATCH_BIN" ]]; then
+    setsid python3 "$WATCH_BIN" </dev/null >>"$STATE_DIR/watch.log" 2>&1 &
+    disown 2>/dev/null || true
+  fi
+
   notify "Recording" "Press the shortcut again to stop and transcribe."
+}
+
+cancel_recording() {
+  local pid
+  pid="$(recorder_pid)"
+  rm -f "$PIDFILE"
+  if recorder_alive "$pid"; then
+    stop_recorder "$pid"
+    rm -f "$WAV" "$OUT_PREFIX.txt"
+    notify "Dictation cancelled" "Nothing was transcribed or typed."
+    return 0
+  fi
+  rm -f "$WAV" "$OUT_PREFIX.txt"
+  notify "Dictation" "Nothing was recording."
 }
 
 clean_text() {
@@ -94,7 +159,7 @@ clean_text() {
 }
 
 fix_proper_nouns() {
-  if [[ ! -x "$POLISH_BIN" ]] && [[ ! -f "$POLISH_BIN" ]]; then
+  if [[ ! -f "$POLISH_BIN" ]]; then
     printf '%s' "$1"
     return
   fi
@@ -124,77 +189,114 @@ polish_text() {
   fi
 }
 
+remember_dictation() {
+  local text="$1"
+  if [[ "${DICTATE_CONTEXT:-1}" == "0" ]] || [[ ! -f "$POLISH_BIN" ]]; then
+    return
+  fi
+  printf '%s' "$text" | python3 "$POLISH_BIN" --remember >/dev/null 2>&1 || true
+}
+
+release_modifiers() {
+  # Drop any modifier still held from the shortcut chord, so the typed keys are
+  # not turned into more shortcuts. Covers both Shift/Ctrl/Alt/Super sides.
+  ydotool key 29:0 42:0 54:0 56:0 97:0 100:0 125:0 126:0 >>"$STATE_DIR/paste.log" 2>&1 || true
+}
+
 paste_text() {
   local text="$1"
   local paste_file="$STATE_DIR/paste.txt"
   local paste_log="$STATE_DIR/paste.log"
+  : >"$paste_log"
 
   if [[ "${CLIPBOARD_ENABLED}" != "0" ]]; then
     qdbus6 org.kde.klipper /klipper org.kde.klipper.klipper.setClipboardContents "$text" \
-      >"$paste_log" 2>&1 || true
+      >>"$paste_log" 2>&1 || true
     printf '%s' "$text" | wl-copy --type text/plain >>"$paste_log" 2>&1 || true
   fi
 
   if [[ ! -S "$YDOTOOL_SOCKET" ]] || ! command -v ydotool >/dev/null 2>&1; then
+    if [[ "${CLIPBOARD_ENABLED}" != "0" ]]; then
+      notify "Dictation" "ydotool is not running; the transcript is on the clipboard."
+    else
+      notify "Dictation failed" "ydotool is not running and the clipboard is disabled."
+    fi
+    return 1
+  fi
+
+  release_modifiers
+  sleep 0.2
+
+  # Long transcripts arrive one keystroke at a time, which is slow and can be
+  # mangled by editor autoindent or autocomplete. Ctrl+V is faster but not
+  # reliable in every Wayland app, so it stays opt-in.
+  if [[ "$PASTE_THRESHOLD" != "0" ]] && [[ "${#text}" -ge "$PASTE_THRESHOLD" ]] \
+     && [[ "${CLIPBOARD_ENABLED}" != "0" ]]; then
+    ydotool key 29:1 47:1 47:0 29:0 >>"$paste_log" 2>&1 || true
     return
   fi
 
-  # Drop leftover Ctrl+? (Shift+/) so typed keys are not eaten by the shortcut chord.
-  ydotool key 125:0 126:0 56:0 100:0 29:0 97:0 42:0 54:0 53:0 >>"$paste_log" 2>&1 || true
-  sleep 0.2
-
   printf '%s' "$text" >"$paste_file"
   chmod 600 "$paste_file" 2>/dev/null || true
-  ydotool type --key-delay 8 --key-hold 8 --file "$paste_file" >>"$paste_log" 2>&1 || true
+  ydotool type --key-delay "$KEY_DELAY" --key-hold "$KEY_DELAY" --file "$paste_file" \
+    >>"$paste_log" 2>&1 || true
+  # Do not leave the transcript sitting in the runtime directory.
+  rm -f "$paste_file"
+}
+
+transcribe() {
+  local model="$1"
+  local -a args=(-m "$model" -f "$WAV" -nt -np -sns -otxt -of "$OUT_PREFIX")
+
+  if [[ -n "$WHISPER_PROMPT" ]]; then
+    args+=(--prompt "$WHISPER_PROMPT")
+  fi
+  if [[ "$WHISPER_LANGUAGE" != "auto" ]]; then
+    args+=(-l "$WHISPER_LANGUAGE")
+  fi
+  # VAD trims silence before decoding, which is what produces most of the
+  # "Thank you." / "[BLANK_AUDIO]" hallucinations on near-empty recordings.
+  if [[ "$WHISPER_VAD" != "0" ]] && [[ -f "$WHISPER_VAD_MODEL" ]]; then
+    args+=(--vad -vm "$WHISPER_VAD_MODEL")
+  fi
+
+  local status=0
+  timeout "$WHISPER_TIMEOUT" "$WHISPER_BIN" "${args[@]}" \
+    >/dev/null 2>"$STATE_DIR/whisper.log" || status=$?
+  return "$status"
 }
 
 stop_and_transcribe() {
-  local pid=""
-  pid="$(cat "$PIDFILE" 2>/dev/null || true)"
+  local pid
+  pid="$(recorder_pid)"
   rm -f "$PIDFILE"
-
-  if [[ -n "$pid" ]]; then
-    kill -INT "$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
-    local i
-    for i in $(seq 1 20); do
-      kill -0 "$pid" 2>/dev/null || break
-      sleep 0.05
-    done
-    kill -KILL "$pid" 2>/dev/null || true
-  fi
+  stop_recorder "$pid"
   sleep 0.15
 
   if [[ ! -s "$WAV" ]]; then
     notify "Dictation" "No audio captured."
-    exit 0
+    return 0
   fi
 
   local model
   if ! model="$(pick_model)"; then
     notify "Dictation failed" "No Whisper model found in $MODEL_DIR"
-    exit 1
+    return 1
   fi
 
   if ! command -v "$WHISPER_BIN" >/dev/null 2>&1; then
     notify "Dictation failed" "whisper-cli is not installed."
-    exit 1
+    return 1
   fi
 
   notify "On it…"
 
-  local lang_args=()
-  if [[ "$LANG" != "auto" ]]; then
-    lang_args=(-l "$LANG")
+  local status=0
+  transcribe "$model" || status=$?
+  if [[ "$status" -eq 124 ]]; then
+    notify "Dictation failed" "Transcription timed out after ${WHISPER_TIMEOUT}s."
+    return 1
   fi
-
-  local prompt_args=()
-  if [[ -n "$WHISPER_PROMPT" ]]; then
-    prompt_args=(--prompt "$WHISPER_PROMPT")
-  fi
-
-  "$WHISPER_BIN" -m "$model" -f "$WAV" -nt -np -sns -otxt -of "$OUT_PREFIX" \
-    "${prompt_args[@]}" \
-    "${lang_args[@]}" >/dev/null 2>"$STATE_DIR/whisper.log" || true
 
   local raw=""
   if [[ -f "$OUT_PREFIX.txt" ]]; then
@@ -204,24 +306,35 @@ stop_and_transcribe() {
   text="$(clean_text "$raw")"
 
   if [[ -z "$text" ]]; then
+    if [[ "$status" -ne 0 ]]; then
+      notify "Dictation failed" "whisper-cli exited $status. See $STATE_DIR/whisper.log"
+      return 1
+    fi
     notify "Dictation" "Nothing transcribed. Try speaking a bit longer."
-    exit 0
+    return 0
   fi
 
   text="$(polish_text "$text")"
   text="$(fix_proper_nouns "$text")"
-  paste_text "$text"
-  notify "Dictation complete"
+  # paste_text has already explained itself if it could not type.
+  if paste_text "$text"; then
+    notify "Dictation complete"
+  fi
+  remember_dictation "$text"
 }
 
-case "${1:-}" in
-  -h|--help)
-    cat <<'EOF'
+usage() {
+  cat <<'EOF'
 dictate-toggle — local push-to-talk dictation via whisper.cpp
 
 Usage:
-  dictate-toggle          Toggle recording / transcribe+paste
+  dictate-toggle          Toggle recording / transcribe+type
+  dictate-toggle --cancel Stop recording and throw the audio away
+  dictate-toggle --status Print idle / recording / busy
   dictate-toggle --help   Show this help
+
+Settings are read from ~/.config/whisper-dictate/config (see README);
+an environment variable of the same name overrides the file.
 
 Environment:
   WHISPER_MODEL       Path to a ggml model (overrides auto-detect)
@@ -229,25 +342,64 @@ Environment:
   WHISPER_LANG        Language code, or "auto" (default: en)
   WHISPER_BIN         whisper.cpp CLI (default: whisper-cli)
   WHISPER_PROMPT      Initial prompt for Whisper (default: empty; do not put brand names here)
-  DICTATE_LLM         1 to polish with Ollama (default), 0 to paste raw Whisper
+  WHISPER_VAD         auto (use the VAD model if present), 1, or 0
+  WHISPER_VAD_MODEL   Silero VAD model (default: $WHISPER_MODEL_DIR/ggml-silero-v5.1.2.bin)
+  WHISPER_TIMEOUT     Seconds before transcription is abandoned (default: 120)
+  DICTATE_LLM         1 to polish with Ollama (default), 0 to type raw Whisper
   DICTATE_LLM_MODEL   Ollama model (default: mistral:7b)
   DICTATE_LLM_HOST    Ollama host (default: http://127.0.0.1:11434)
   DICTATE_LLM_ALLOW_REMOTE  Set to 1 to allow a non-localhost Ollama
   DICTATE_CLIPBOARD   1 to also copy the transcript (default), 0 to skip
+  DICTATE_CONTEXT     1 to let polish use the last 4 dictations (default), 0 to disable
+  DICTATE_CONTEXT_FILE  JSON list of recent dictations (default: $XDG_RUNTIME_DIR/whisper-dictate/recent.json)
+  DICTATE_DICTIONARY  Spoken-word replacements (default: ~/.config/whisper-dictate/dictionary)
+  DICTATE_MAX_SECONDS Stop recording after this long (default: 600, 0 disables)
+  DICTATE_SILENCE_SECONDS  Stop after this much silence (default: 0, off)
+  DICTATE_SILENCE_LEVEL    RMS below which audio counts as silence (default: 350)
+  DICTATE_KEY_DELAY   ydotool key delay in ms (default: 8)
+  DICTATE_PASTE_THRESHOLD  Type with Ctrl+V above this length (default: 0, off)
 EOF
-    exit 0
-    ;;
-esac
+}
 
-# mkdir is atomic and cannot be inherited by pw-cat (unlike flock fds).
-if ! mkdir "$LOCKDIR" 2>/dev/null; then
-  notify "Dictation" "Busy — ignored extra keypress."
-  exit 0
-fi
-trap 'rmdir "$LOCKDIR" 2>/dev/null || true' EXIT
+main() {
+  case "${1:-}" in
+    -h|--help)
+      usage
+      return 0
+      ;;
+    --status)
+      if is_recording; then
+        echo recording
+      elif [[ -d "$LOCKDIR" ]]; then
+        echo busy
+      else
+        echo idle
+      fi
+      return 0
+      ;;
+  esac
 
-if is_recording; then
-  stop_and_transcribe
-else
-  start_recording
+  if ! dictate_acquire_lock "$LOCKDIR"; then
+    notify "Dictation" "Busy — ignored extra keypress."
+    return 0
+  fi
+  trap 'rm -rf "$LOCKDIR" 2>/dev/null || true' EXIT
+
+  case "${1:-}" in
+    --cancel)
+      cancel_recording
+      return 0
+      ;;
+  esac
+
+  if is_recording; then
+    stop_and_transcribe
+  else
+    start_recording
+  fi
+}
+
+# Sourcing the script (the test suite does) must not start a recording.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
 fi
