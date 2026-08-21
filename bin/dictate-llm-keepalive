@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Keep the dictation LLM resident in Ollama so cleanup never hits a cold load.
+set -euo pipefail
+
+HOST="${DICTATE_LLM_HOST:-http://127.0.0.1:11434}"
+MODEL="${DICTATE_LLM_MODEL:-mistral:7b}"
+
+for _ in $(seq 1 60); do
+  if curl -sf --max-time 1 "$HOST/api/tags" >/dev/null; then
+    break
+  fi
+  sleep 0.5
+done
+
+DICTATE_LLM_HOST="$HOST" DICTATE_LLM_MODEL="$MODEL" python3 - <<'PY'
+import json, os, urllib.request
+
+host = os.environ.get("DICTATE_LLM_HOST", "http://127.0.0.1:11434").rstrip("/")
+model = os.environ.get("DICTATE_LLM_MODEL", "mistral:7b")
+payload = {
+    "model": model,
+    "prompt": "ok",
+    "stream": False,
+    "keep_alive": -1,
+    "options": {"num_predict": 1, "temperature": 0, "num_ctx": 2048},
+}
+req = urllib.request.Request(
+    host + "/api/generate",
+    data=json.dumps(payload).encode(),
+    headers={"Content-Type": "application/json"},
+    method="POST",
+)
+with urllib.request.urlopen(req, timeout=180) as resp:
+    resp.read()
+print(f"loaded {model} keep_alive=-1")
+PY

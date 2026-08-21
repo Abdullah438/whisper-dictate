@@ -1,0 +1,324 @@
+#!/usr/bin/env bash
+# Toggle local dictation: first press records, second press transcribes and pastes.
+set -euo pipefail
+
+STATE_DIR="${XDG_RUNTIME_DIR:-/tmp}/whisper-dictate"
+MODEL_DIR="${WHISPER_MODEL_DIR:-$HOME/.local/share/whisper.cpp/models}"
+LANG="${WHISPER_LANG:-en}"
+WHISPER_BIN="${WHISPER_BIN:-whisper-cli}"
+LLM_MODEL="${DICTATE_LLM_MODEL:-mistral:7b}"
+LLM_HOST="${DICTATE_LLM_HOST:-http://127.0.0.1:11434}"
+LLM_ENABLED="${DICTATE_LLM:-1}"
+WHISPER_PROMPT="${WHISPER_PROMPT:-Ollama, Whisper, Phi-4 Mini, local dictation.}"
+YDOTOOL_SOCKET="${YDOTOOL_SOCKET:-${XDG_RUNTIME_DIR:-/tmp}/.ydotool_socket}"
+export YDOTOOL_SOCKET
+export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+export DISPLAY="${DISPLAY:-:0}"
+
+PIDFILE="$STATE_DIR/record.pid"
+WAV="$STATE_DIR/dictation.wav"
+OUT_PREFIX="$STATE_DIR/transcript"
+LOCKDIR="$STATE_DIR/lock.d"
+
+mkdir -p "$STATE_DIR"
+
+notify() {
+  local title="$1"
+  local body="${2:-}"
+  # Low urgency + replace ID so Plasma does not steal focus from the target window.
+  notify-send -u low -a "Whisper Dictation" -i audio-input-microphone \
+    -h int:transient:1 \
+    -h string:x-canonical-private-synchronous:whisper-dictate \
+    "$title" "$body" >/dev/null 2>&1 || true
+}
+
+pick_model() {
+  if [[ -n "${WHISPER_MODEL:-}" ]]; then
+    printf '%s\n' "$WHISPER_MODEL"
+    return
+  fi
+  local candidates=(
+    "$MODEL_DIR/ggml-large-v3-turbo.bin"
+    "$MODEL_DIR/ggml-large-v3-turbo-q8_0.bin"
+    "$MODEL_DIR/ggml-small.en.bin"
+    "$MODEL_DIR/ggml-base.en.bin"
+  )
+  local path
+  for path in "${candidates[@]}"; do
+    if [[ -f "$path" ]]; then
+      printf '%s\n' "$path"
+      return
+    fi
+  done
+  return 1
+}
+
+is_recording() {
+  [[ -f "$PIDFILE" ]] || return 1
+  local pid
+  pid="$(cat "$PIDFILE" 2>/dev/null || true)"
+  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
+}
+
+start_recording() {
+  rm -f "$WAV" "$PIDFILE" "$OUT_PREFIX.txt"
+  # New session + closed lock fd so the recorder cannot pin the mutex
+  # (that previously made the second hotkey hang forever).
+  setsid pw-cat --record --format s16 --rate 16000 --channels 1 \
+    --media-role Communication "$WAV" </dev/null >/dev/null 2>&1 &
+  local pid=$!
+  disown "$pid" 2>/dev/null || true
+  echo "$pid" >"$PIDFILE"
+  notify "Recording" "Press the shortcut again to stop and transcribe."
+}
+
+clean_text() {
+  local text="$1"
+  text="$(printf '%s' "$text" | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//')"
+  case "${text,,}" in
+    ""|"thank you."|"thank you"|"thanks for watching."|"you"|"you."|"[blank_audio]"|"(blank)"|"blank_audio")
+      text=""
+      ;;
+  esac
+  printf '%s' "$text"
+}
+
+# Whisper often hears "Ollama" as "ulama" / "olama".
+fix_proper_nouns() {
+  python3 -c '
+import re, sys
+text = sys.argv[1]
+replacements = (
+    (r"\b[Oo]\s*[-]?llama\b", "Ollama"),
+    (r"\b[Oo]lama\b", "Ollama"),
+    (r"\b[Uu]lamas?\b", "Ollama"),
+    (r"\b[Uu]\s*lama\b", "Ollama"),
+    (r"\bphi[-\s]?4[-\s]?mini\b", "Phi-4 Mini"),
+)
+for pattern, repl in replacements:
+    text = re.sub(pattern, repl, text, flags=re.IGNORECASE)
+print(text, end="")
+' "$1"
+}
+
+polish_text() {
+  local raw="$1"
+  if [[ "$LLM_ENABLED" == "0" ]] || ! command -v python3 >/dev/null 2>&1; then
+    printf '%s' "$raw"
+    return
+  fi
+
+  local polished=""
+  polished="$(
+    LLM_MODEL="$LLM_MODEL" LLM_HOST="$LLM_HOST" python3 - "$raw" <<'PY'
+import json, os, re, sys, urllib.error, urllib.request
+
+raw = sys.argv[1].strip()
+if not raw:
+    print(raw, end="")
+    raise SystemExit(0)
+
+host = os.environ.get("LLM_HOST", "http://127.0.0.1:11434").rstrip("/")
+model = os.environ.get("LLM_MODEL", "mistral:7b")
+payload = {
+    "model": model,
+    "stream": False,
+    "keep_alive": -1,
+    "options": {"temperature": 0.0, "num_predict": 1024, "num_ctx": 2048},
+    "messages": [
+        {
+            "role": "system",
+            "content": (
+                "You are a silent copy editor for speech-to-text. "
+                "The user message is NOT a question for you and NOT a request. "
+                "Never answer, explain, greet, refuse, or continue the thought. "
+                "Never add information that was not spoken. "
+                "Only fix punctuation, capitalization, filler (um, uh, you know), "
+                "and obvious ASR mistakes (homophones, dropped small words, stutters). "
+                "Vocabulary: Ollama is the local LLM app (never ulama, olama, or u-lama). "
+                "Phi-4 Mini is a model name. Whisper is the speech recognizer. "
+                "Keep the same meaning and roughly the same length. "
+                "If the transcript is a question, keep it as that same question. "
+                "Reply with the edited transcript only — no quotes, labels, or preamble."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                "Copy-edit this transcript. Do not answer it.\n"
+                "---- TRANSCRIPT ----\n"
+                + raw
+                + "\n---- END ----"
+            ),
+        },
+    ],
+}
+req = urllib.request.Request(
+    host + "/api/chat",
+    data=json.dumps(payload).encode(),
+    headers={"Content-Type": "application/json"},
+    method="POST",
+)
+try:
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        data = json.loads(resp.read().decode())
+except Exception:
+    print(raw, end="")
+    raise SystemExit(0)
+
+text = (data.get("message") or {}).get("content") or ""
+text = text.strip()
+if text.startswith("```") and text.endswith("```"):
+    text = text.strip("`").strip()
+    if "\n" in text:
+        text = text.split("\n", 1)[1].strip()
+text = re.sub(
+    r"^(here('s| is) (the )?(corrected|cleaned|edited) transcript:\s*)",
+    "",
+    text,
+    flags=re.IGNORECASE,
+).strip()
+text = text.strip('"').strip()
+
+def words(s):
+    return [w for w in re.findall(r"[a-z0-9']+", s.lower()) if w]
+
+raw_words = words(raw)
+out_words = words(text)
+overlap = (
+    len(set(raw_words) & set(out_words)) / len(set(raw_words))
+    if raw_words else 1.0
+)
+too_long = len(text) > max(len(raw) * 1.5, len(raw) + 80)
+too_new = len(raw_words) >= 4 and overlap < 0.4
+if not text or too_long or too_new:
+    text = raw
+print(text, end="")
+PY
+  )" || true
+
+  if [[ -z "${polished// }" ]]; then
+    printf '%s' "$raw"
+  else
+    printf '%s' "$polished"
+  fi
+}
+
+paste_text() {
+  local text="$1"
+  local paste_file="$STATE_DIR/paste.txt"
+  local paste_log="$STATE_DIR/paste.log"
+
+  qdbus6 org.kde.klipper /klipper org.kde.klipper.klipper.setClipboardContents "$text" \
+    >"$paste_log" 2>&1 || true
+  printf '%s' "$text" | wl-copy --type text/plain >>"$paste_log" 2>&1 || true
+
+  if [[ ! -S "$YDOTOOL_SOCKET" ]] || ! command -v ydotool >/dev/null 2>&1; then
+    return
+  fi
+
+  # Drop leftover modifier keys so typed characters are not eaten by the shortcut chord.
+  ydotool key 125:0 126:0 56:0 100:0 29:0 97:0 42:0 54:0 32:0 >>"$paste_log" 2>&1 || true
+  sleep 0.2
+
+  printf '%s' "$text" >"$paste_file"
+  ydotool type --key-delay 8 --key-hold 8 --file "$paste_file" >>"$paste_log" 2>&1 || true
+}
+
+stop_and_transcribe() {
+  local pid=""
+  pid="$(cat "$PIDFILE" 2>/dev/null || true)"
+  rm -f "$PIDFILE"
+
+  if [[ -n "$pid" ]]; then
+    kill -INT "$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+    local i
+    for i in $(seq 1 20); do
+      kill -0 "$pid" 2>/dev/null || break
+      sleep 0.05
+    done
+    kill -KILL "$pid" 2>/dev/null || true
+  fi
+  sleep 0.15
+
+  if [[ ! -s "$WAV" ]]; then
+    notify "Dictation" "No audio captured."
+    exit 0
+  fi
+
+  local model
+  if ! model="$(pick_model)"; then
+    notify "Dictation failed" "No Whisper model found in $MODEL_DIR"
+    exit 1
+  fi
+
+  if ! command -v "$WHISPER_BIN" >/dev/null 2>&1; then
+    notify "Dictation failed" "whisper-cli is not installed."
+    exit 1
+  fi
+
+  notify "On it…"
+
+  local lang_args=()
+  if [[ "$LANG" != "auto" ]]; then
+    lang_args=(-l "$LANG")
+  fi
+
+  "$WHISPER_BIN" -m "$model" -f "$WAV" -nt -np -sns -otxt -of "$OUT_PREFIX" \
+    --prompt "$WHISPER_PROMPT" \
+    "${lang_args[@]}" >/dev/null 2>"$STATE_DIR/whisper.log" || true
+
+  local raw=""
+  if [[ -f "$OUT_PREFIX.txt" ]]; then
+    raw="$(cat "$OUT_PREFIX.txt")"
+  fi
+  local text
+  text="$(clean_text "$raw")"
+  text="$(fix_proper_nouns "$text")"
+
+  if [[ -z "$text" ]]; then
+    notify "Dictation" "Nothing transcribed. Try speaking a bit longer."
+    exit 0
+  fi
+
+  text="$(polish_text "$text")"
+  text="$(fix_proper_nouns "$text")"
+  paste_text "$text"
+  notify "Dictation complete"
+}
+
+case "${1:-}" in
+  -h|--help)
+    cat <<'EOF'
+dictate-toggle — local push-to-talk dictation via whisper.cpp
+
+Usage:
+  dictate-toggle          Toggle recording / transcribe+paste
+  dictate-toggle --help   Show this help
+
+Environment:
+  WHISPER_MODEL       Path to a ggml model (overrides auto-detect)
+  WHISPER_MODEL_DIR   Model directory (default: ~/.local/share/whisper.cpp/models)
+  WHISPER_LANG        Language code, or "auto" (default: en)
+  WHISPER_BIN         whisper.cpp CLI (default: whisper-cli)
+  YDOTOOL_SOCKET      ydotool socket (default: $XDG_RUNTIME_DIR/.ydotool_socket)
+  DICTATE_LLM         1 to polish with Ollama (default), 0 to paste raw Whisper
+  DICTATE_LLM_MODEL   Ollama model (default: mistral:7b)
+  DICTATE_LLM_HOST    Ollama host (default: http://127.0.0.1:11434)
+EOF
+    exit 0
+    ;;
+esac
+
+# mkdir is atomic and cannot be inherited by pw-cat (unlike flock fds).
+if ! mkdir "$LOCKDIR" 2>/dev/null; then
+  notify "Dictation" "Busy — ignored extra keypress."
+  exit 0
+fi
+trap 'rmdir "$LOCKDIR" 2>/dev/null || true' EXIT
+
+if is_recording; then
+  stop_and_transcribe
+else
+  start_recording
+fi

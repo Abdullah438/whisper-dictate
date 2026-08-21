@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh the dictation LLM pin in Ollama so it never unloads
+
+[Timer]
+OnStartupSec=20s
+OnUnitActiveSec=8min
+AccuracySec=30s
+Persistent=true
+Unit=dictate-llm-keepalive.service
+
+[Install]
+WantedBy=timers.target

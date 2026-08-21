@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Whisper Dictation
+Comment=Toggle local whisper.cpp dictation
+Exec=dictate-toggle
+Icon=audio-input-microphone
+NoDisplay=true
+Terminal=false
+StartupNotify=false
+X-KDE-GlobalAccel-CommandShortcut=true
+Categories=Utility;Audio;

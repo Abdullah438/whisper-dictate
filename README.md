@@ -1,0 +1,158 @@
+# Whisper Dictation
+
+Offline **speech dictation** for Linux. Hold no cloud account: you tap a shortcut, speak, tap again, and the transcript is typed into the focused window.
+
+This is dictation (speech-to-text). It is not a desktop “dictator.”
+
+It is built for **PipeWire + Wayland**, with optional **NVIDIA CUDA** via `whisper.cpp` and optional punctuation cleanup via a local **Ollama** model.
+
+## What it does
+
+1. First shortcut press starts a 16 kHz mono recording with `pw-cat`.
+2. Second press stops, runs `whisper-cli`, optionally copy-edits the text with Ollama, then types it with `ydotool`.
+3. Notifications stay low-urgency so Plasma does not steal focus from the app you were typing in.
+
+Default model order:
+
+1. `ggml-large-v3-turbo.bin` (recommended)
+2. `ggml-large-v3-turbo-q8_0.bin`
+3. `ggml-small.en.bin`
+4. `ggml-base.en.bin`
+
+## Requirements
+
+| Piece | Why |
+| --- | --- |
+| PipeWire (`pw-cat`) | Capture the microphone |
+| whisper.cpp (`whisper-cli`) | Local speech recognition |
+| A ggml Whisper model | The weights `whisper-cli` loads |
+| `ydotool` / `ydotoold` | Type into the focused Wayland window |
+| `notify-send` | Recording / done toasts |
+| Python 3 | Proper-noun fixes and optional LLM polish |
+| Ollama + `mistral:7b` | Optional cleanup only |
+
+On KDE Plasma Wayland, clipboard paste (`Ctrl+V`) is unreliable from a global shortcut. This stack types with `ydotool` instead.
+
+## Install
+
+```bash
+gh repo clone Abdullah438/whisper-dictate
+cd whisper-dictate
+chmod +x install.sh bin/*
+./install.sh
+```
+
+That copies the scripts to `~/.local/bin`, installs a hidden desktop launcher, and drops in user systemd units.
+
+### Packages
+
+**Arch / CachyOS**
+
+```bash
+sudo pacman -S --needed whisper-cpp ydotool pipewire python libnotify
+# GPU (optional, if you have NVIDIA):
+sudo pacman -S --needed ggml-cuda ggml-cpu
+```
+
+**Fedora**
+
+```bash
+sudo dnf install whisper-cpp ydotool pipewire python3 libnotify
+```
+
+**Debian / Ubuntu**
+
+Package names vary. You need `whisper-cli` (or a whisper.cpp build), `ydotool`, PipeWire, Python 3, and `libnotify-bin`. Building [whisper.cpp](https://github.com/ggml-org/whisper.cpp) from source is the portable path if your distro has no package.
+
+### Whisper model
+
+```bash
+mkdir -p ~/.local/share/whisper.cpp/models
+curl -L --output ~/.local/share/whisper.cpp/models/ggml-large-v3-turbo.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin
+```
+
+`large-v3-turbo` is about 1.6 GB. Full `ggml-large-v3.bin` (~3.1 GB) is a bit more accurate and a lot slower; turbo is the better default for dictation.
+
+### Shortcut (KDE Plasma)
+
+1. Settings → Shortcuts → add **Whisper Dictation** (the hidden launcher `local.dictate-toggle.desktop`).
+2. Bind it to **Meta+Alt+D**, or another chord that does not fight your desktop.
+
+GNOME / Hyprland / Sway: bind the same command:
+
+```bash
+~/.local/bin/dictate-toggle
+```
+
+### ydotool on Wayland
+
+The installer writes `~/.config/systemd/user/ydotool.service.d/socket.conf` so `ydotoold` listens on `$XDG_RUNTIME_DIR/.ydotool_socket`. Enable it:
+
+```bash
+systemctl --user enable --now ydotool.service
+```
+
+You also need write access to `/dev/uinput` (often the `input` group, or the udev rule shipped with `ydotool`). Log out after a group change.
+
+### Optional: Ollama polish
+
+Whisper output is usable on its own. Ollama only fixes punctuation, capitalization, and obvious ASR mistakes. It is instructed **not to answer questions** — a dictated question stays a question.
+
+```bash
+# Install Ollama, then:
+ollama pull mistral:7b
+systemctl --user enable --now dictate-llm-keepalive.timer
+```
+
+To skip polish:
+
+```bash
+export DICTATE_LLM=0
+```
+
+To keep `mistral:7b` loaded across reboots, copy the optional system drop-in:
+
+```bash
+sudo install -m 0755 contrib/ollama/ollama-pin-model /usr/local/bin/ollama-pin-model
+sudo mkdir -p /etc/systemd/system/ollama.service.d
+sudo cp contrib/ollama/keep-alive.conf /etc/systemd/system/ollama.service.d/keep-alive.conf
+sudo systemctl daemon-reload
+sudo systemctl restart ollama
+```
+
+## Usage
+
+- **First press:** recording starts.
+- **Speak.**
+- **Second press:** transcribe, polish (if enabled), type into the focused field.
+
+Set `DICTATE_LLM=0` if you want raw Whisper text with no local LLM.
+
+## Environment
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `WHISPER_MODEL` | (auto) | Exact ggml path |
+| `WHISPER_MODEL_DIR` | `~/.local/share/whisper.cpp/models` | Search directory |
+| `WHISPER_LANG` | `en` | Language, or `auto` |
+| `WHISPER_BIN` | `whisper-cli` | Binary name |
+| `YDOTOOL_SOCKET` | `$XDG_RUNTIME_DIR/.ydotool_socket` | ydotoold socket |
+| `DICTATE_LLM` | `1` | `0` skips Ollama |
+| `DICTATE_LLM_MODEL` | `mistral:7b` | Cleanup model |
+| `DICTATE_LLM_HOST` | `http://127.0.0.1:11434` | Ollama API |
+
+## Layout
+
+```
+bin/dictate-toggle              # hotkey entrypoint
+bin/dictate-llm-keepalive       # ping Ollama so the model stays resident
+contrib/local.dictate-toggle.desktop
+contrib/systemd/                # user units + ydotool socket drop-in
+contrib/ollama/                 # optional system pin for mistral:7b
+install.sh
+```
+
+## License
+
+MIT. Whisper weights and Ollama models have their own licenses; this repo does not vendor them.

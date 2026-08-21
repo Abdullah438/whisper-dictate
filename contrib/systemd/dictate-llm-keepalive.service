@@ -1,0 +1,11 @@
+[Unit]
+Description=Keep the dictation LLM loaded in Ollama (never unload)
+After=graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/dictate-llm-keepalive
+TimeoutStartSec=180
+
+[Install]
+WantedBy=default.target
