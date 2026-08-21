@@ -12,6 +12,10 @@ from urllib.parse import urlparse
 
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
+# Must match dictate-polish.py and dictate-llm-keepalive: Ollama reloads the
+# model whenever num_ctx changes, which costs a few seconds on the next call.
+LLM_NUM_CTX = 4096
+
 
 def words(s: str) -> list[str]:
     return [w for w in re.findall(r"[a-z0-9']+", s.lower()) if w]
@@ -96,7 +100,7 @@ def rewrite(raw: str) -> str:
         "model": model,
         "stream": False,
         "keep_alive": -1,
-        "options": {"temperature": 0.2, "num_predict": 1024, "num_ctx": 2048},
+        "options": {"temperature": 0.2, "num_predict": 1024, "num_ctx": LLM_NUM_CTX},
         "messages": [
             {
                 "role": "system",
