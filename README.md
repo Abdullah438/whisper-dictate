@@ -294,14 +294,31 @@ a single run.
 | `DICTATE_SILENCE_LEVEL` | `0` | Fixed silence RMS; `0` calibrates to your mic and voice |
 | `DICTATE_KEY_DELAY` | `8` | `ydotool` key delay, in ms |
 | `DICTATE_NEWLINE` | `shift-enter` | How a line break is typed: `shift-enter`, `enter`, `space` |
-| `DICTATE_PASTE_THRESHOLD` | `0` | Send `Ctrl+V` above this length; `0` disables |
+| `DICTATE_INSERT` | `type` | `type` keystroke by keystroke, or `paste` in one keystroke |
+| `DICTATE_PASTE_KEY` | `ctrl+v` | Paste chord; `ctrl+shift+v` for terminals |
 | `DICTATE_PRIMARY` | `1` | Rewrite reads the primary selection; `0` uses `Ctrl+C` |
 | `DICTATE_CONFIG` | `~/.config/whisper-dictate/config` | Settings file |
 
-Long transcripts arrive one keystroke at a time, which is slow and can be
-mangled by editor autoindent or autocomplete. `DICTATE_PASTE_THRESHOLD=200`
-sends `Ctrl+V` instead for anything longer than 200 characters. It is off by
-default because `Ctrl+V` is not reliable in every Wayland app.
+### Getting the text in faster
+
+Typing is the default because it works everywhere, but it costs
+`DICTATE_KEY_DELAY` + `DICTATE_KEY_HOLD` per character — about 16 ms at the
+defaults. A 300-character transcript therefore spends roughly **5 seconds**
+arriving, every bit of it *after* whisper.cpp and the LLM have already finished.
+
+```bash
+DICTATE_INSERT=paste
+```
+
+Pasting is one keystroke regardless of length, so the wait disappears. The
+trade-offs: it needs `DICTATE_CLIPBOARD=1` (the default), the transcript passes
+through your clipboard, terminals want `DICTATE_PASTE_KEY=ctrl+shift+v` instead
+of `Ctrl+V`, and a few password or payment fields refuse paste outright. With
+the clipboard switched off it falls back to typing.
+
+If you would rather keep typing, `DICTATE_KEY_DELAY=0` is far quicker than the
+default, though some apps drop or reorder characters that arrive with no delay
+between them.
 
 ## Security
 
