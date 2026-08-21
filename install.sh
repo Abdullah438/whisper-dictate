@@ -42,6 +42,41 @@ install -m 0644 "$ROOT/contrib/systemd/dictate-llm-keepalive.timer" \
 install -m 0644 "$ROOT/contrib/systemd/ydotool.socket.conf" \
   "$YDOTOOL_DROPIN/socket.conf"
 
+# KDE: bind shortcuts inside KWin. Application launcher shortcuts go
+# inactive after reboot, so Ctrl+? never fires from kglobalshortcutsrc alone.
+KWIN_SCRIPT_ID="whisper-dictate-shortcuts"
+KWIN_SCRIPT_DST="${HOME}/.local/share/kwin/scripts/${KWIN_SCRIPT_ID}"
+if [[ -d "$ROOT/contrib/kwin/${KWIN_SCRIPT_ID}" ]]; then
+  mkdir -p "$KWIN_SCRIPT_DST"
+  cp -a "$ROOT/contrib/kwin/${KWIN_SCRIPT_ID}/." "$KWIN_SCRIPT_DST/"
+  if command -v kwriteconfig6 >/dev/null 2>&1; then
+    kwriteconfig6 --file kwinrc --group Plugins --key "${KWIN_SCRIPT_ID}Enabled" true
+  fi
+  if command -v qdbus6 >/dev/null 2>&1; then
+    qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript \
+      "$KWIN_SCRIPT_ID" >/dev/null 2>&1 || true
+    qdbus6 org.kde.KWin /KWin reconfigure >/dev/null 2>&1 || true
+    qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript \
+      "${KWIN_SCRIPT_DST}/contents/code/main.js" "$KWIN_SCRIPT_ID" \
+      >/dev/null 2>&1 || true
+    qdbus6 org.kde.KWin /Scripting org.kde.kwin.Scripting.start \
+      >/dev/null 2>&1 || true
+  fi
+  # Drop Plasma application-shortcut grabs so KWin owns the chords.
+  # Also free Meta+Alt+R if Spectacle bound it to screen recording.
+  python3 - <<'PY' >/dev/null 2>&1 || true
+from gi.repository import Gio, GLib
+bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+kga = Gio.DBusProxy.new_sync(bus, 0, None, "org.kde.kglobalaccel", "/kglobalaccel", "org.kde.KGlobalAccel", None)
+def clear(comp, act, name, friendly):
+    action = [comp, act, name, friendly]
+    kga.call_sync("setShortcut", GLib.Variant("(asaiu)", (action, [], 4)), 0, 4000, None)
+clear("local.dictate-toggle.desktop", "_launch", "Whisper Dictation", "Whisper Dictation")
+clear("local.rewrite-selection.desktop", "_launch", "Rewrite Selection", "Rewrite Selection")
+clear("org.kde.spectacle.desktop", "RecordScreen", "Spectacle", "Start/Stop Screen Recording")
+PY
+fi
+
 if command -v kbuildsycoca6 >/dev/null 2>&1; then
   kbuildsycoca6 >/dev/null 2>&1 || true
 elif command -v kbuildsycoca5 >/dev/null 2>&1; then
@@ -64,10 +99,9 @@ echo "  1. Install whisper.cpp (whisper-cli), PipeWire pw-cat, ydotool, notify-s
 echo "     python-gobject, and gtk3."
 echo "  2. Download a ggml model into ${MODEL_DIR}"
 echo "     Recommended: ggml-large-v3-turbo.bin"
-echo "  3. Dictation shortcut: bind ${DESKTOP_ID} (Ctrl+?)."
-echo "  4. Rewrite shortcut: bind ${REWRITE_DESKTOP_ID} (Meta+Alt+R)."
-echo "     Select text, then press the shortcut."
-echo "  5. Optional LLM: install Ollama, pull mistral:7b, then:"
+echo "  3. On KDE, dictation is Ctrl+? (Ctrl+Shift+/) and rewrite is Meta+Alt+R."
+echo "     Those are installed as a KWin script so they survive login."
+echo "  4. Optional LLM: install Ollama, pull mistral:7b, then:"
 echo "       systemctl --user enable --now dictate-llm-keepalive.timer"
 echo
 echo "See README.md for distro packages and model download commands."

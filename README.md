@@ -93,10 +93,12 @@ The tray uses the desktop StatusNotifier protocol (KDE Plasma, and most other Li
 
 ### Shortcut (optional)
 
-The keyboard shortcut still works if you want it:
+On KDE Plasma, `install.sh` enables a KWin script so the chords survive login:
 
-1. Settings → Shortcuts → add the hidden launcher `local.dictate-toggle.desktop`.
-2. Bind it to **Ctrl+?**, or another chord that does not fight your desktop.
+- **Dictation:** Ctrl+? (that is Ctrl+Shift+/ on a US keyboard)
+- **Rewrite:** Meta+Alt+R
+
+Plasma application shortcuts go inactive after reboot; binding inside KWin avoids that. Change the chords later in Settings → Shortcuts → KWin → Whisper Dictation.
 
 GNOME / Hyprland / Sway can bind either:
 
