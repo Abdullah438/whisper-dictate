@@ -26,11 +26,11 @@ jobs:
 
       - name: Lint shell scripts
         run: |
-          shellcheck -x bin/dictate-common.sh bin/dictate-toggle bin/rewrite-selection \
+          shellcheck -x bin/dictate-common.sh bin/dictate-toggle \
             bin/dictate-llm-keepalive contrib/ollama/ollama-pin-model \
             install.sh uninstall.sh
 
       - name: Check python syntax
         run: |
-          python -m compileall -q bin/dictate-polish.py bin/rewrite-text.py
+          python -m compileall -q bin/dictate-polish.py
           python -m py_compile bin/dictate-tray bin/dictate-watch

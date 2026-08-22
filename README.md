@@ -11,8 +11,7 @@ It is built for **PipeWire + Wayland**, with optional **NVIDIA CUDA** via `whisp
 1. First click (or shortcut press) starts a 16 kHz mono recording with `pw-cat`.
 2. Second click stops, runs `whisper-cli`, optionally copy-edits the text with Ollama, then types it with `ydotool`.
 3. Notifications stay low-urgency so Plasma does not steal focus from the app you were typing in.
-4. A system tray icon can show idle / recording / transcribing, and can cancel a recording.
-5. Highlight text and run `rewrite-selection` (bind that script in your desktop) to rewrite it with the same local Mistral model.
+4. A system tray icon can show idle / recording / transcribing, and can cancel a recording. A shortcut can cancel it too.
 
 A recording never runs forever: it stops on its own after `DICTATE_MAX_SECONDS`
 (10 minutes by default), and it can stop when you simply stop talking — see
@@ -63,7 +62,7 @@ In order, none of which depends on this repo being the same checkout:
 1. Install the packages for your distro (below).
 2. Download a Whisper model, and the VAD model.
 3. `git clone` this repo and run `./install.sh`.
-4. Assign shortcuts to the **Whisper Dictation** and **Rewrite Selection**
+4. Assign shortcuts to the **Whisper Dictation** and **Dictate Cancel**
    entries the installer registers.
 5. `systemctl --user enable --now ydotool.service`, and add yourself to the
    group that owns `/dev/uinput`.
@@ -133,13 +132,13 @@ The tray uses the desktop StatusNotifier protocol (KDE Plasma, and most other Li
 This project does not install keyboard shortcuts. Point your desktop at the scripts:
 
 ```bash
-~/.local/bin/dictate-toggle       # first press records, second press transcribes
-~/.local/bin/rewrite-selection    # rewrite the current text selection
-~/.local/bin/dictate-tray         # tray icon; click to toggle if it is already running
+~/.local/bin/dictate-toggle             # first press records, second press transcribes
+~/.local/bin/dictate-toggle --cancel    # throw away the current recording, nothing typed
+~/.local/bin/dictate-tray               # tray icon; click to toggle if it is already running
 ```
 
-**KDE Plasma:** `install.sh` already registers **Whisper Dictation** and **Rewrite
-Selection** as command shortcuts — they just have no key yet. Go to Settings →
+**KDE Plasma:** `install.sh` already registers **Whisper Dictation** and **Dictate
+Cancel** as command shortcuts — they just have no key yet. Go to Settings →
 Keyboard → Shortcuts, search for those two names, and assign a chord to each.
 
 Do **not** use *Add New → Command or URL* to point at the same script. That
@@ -151,9 +150,9 @@ If you already did this, delete the extra `net.local.*.desktop` files from
 
 Avoid a chord whose key needs Shift to type, such as `Ctrl+?` (Shift+/).
 Plasma stores it without the Shift modifier and it can silently never fire on
-Wayland. `Meta+Ctrl+/` and `Meta+Ctrl+\` work well and collide with nothing.
-Remember that a global shortcut is swallowed before the focused app sees it, so
-`Ctrl+/` would cost you toggle-comment in every editor.
+Wayland. `Meta+Ctrl+/` for dictation and `Meta+Ctrl+\` for cancel work well and
+collide with nothing. Remember that a global shortcut is swallowed before the
+focused app sees it, so `Ctrl+/` would cost you toggle-comment in every editor.
 
 **GNOME:** Settings → Keyboard → Keyboard Shortcuts → Custom Shortcuts.
 
@@ -219,25 +218,15 @@ words; longer entries are applied first. This pass runs last, after the LLM, so
 it always wins. Unlike `WHISPER_PROMPT`, it cannot push Whisper into inventing
 those words when you did not say them.
 
-### Rewrite selection
+### Line breaks
 
-Highlight a sentence or paragraph, then run `rewrite-selection`. The script reads the selection, rewrites it with `mistral:7b`, and types the result over the highlight.
-
-Line breaks are typed as **Shift+Enter**, not Enter. In a message box — WhatsApp
-Web, Slack, Discord, Telegram, most webmail reply fields — Enter *sends*, so a
-two-line rewrite would post half a sentence and type the rest into the next
-message. Shift+Enter is the line break those apps expect, and a plain text area
-or editor treats it the same as Enter. Set `DICTATE_NEWLINE=enter` if you only
-ever type into editors, or `DICTATE_NEWLINE=space` to collapse every rewrite
-onto one line.
-
-It reads the Wayland *primary* selection, which highlighting already fills, so
-the normal path never touches your clipboard. Apps that do not export a primary
-selection fall back to a synthetic `Ctrl+C`; that path empties the clipboard
-first, so a copy that never lands cannot type stale clipboard content over your
-text. Set `DICTATE_PRIMARY=0` to always use `Ctrl+C`.
-
-Use this for text you already wrote. Dictation cleanup stays a separate, stricter pass.
+A transcript with more than one line is typed as **Shift+Enter**, not Enter. In
+a message box — WhatsApp Web, Slack, Discord, Telegram, most webmail reply
+fields — Enter *sends*, so a multi-line transcript would post part of it and
+type the rest into the next message. Shift+Enter is the line break those apps
+expect, and a plain text area or editor treats it the same as Enter. Set
+`DICTATE_NEWLINE=enter` if you only ever type into editors, or
+`DICTATE_NEWLINE=space` to collapse the transcript onto one line.
 
 ### ydotool on Wayland
 
@@ -289,9 +278,9 @@ sudo systemctl restart ollama
 - **Click the tray mic** (or your dictation shortcut): recording starts.
 - **Speak.**
 - **Click again** (or the same shortcut): transcribe, polish (if enabled), type into the focused field.
-- **Select text, then your rewrite shortcut:** rewrite that selection in place.
+- **Your cancel shortcut** (or **Cancel and discard** in the tray): throw away the current recording without transcribing or typing it.
 
-Set `DICTATE_LLM=0` in the config file if you want raw Whisper text with no local LLM. Rewrite still needs Ollama.
+Set `DICTATE_LLM=0` in the config file if you want raw Whisper text with no local LLM.
 
 ## Settings reference
 
@@ -323,7 +312,6 @@ a single run.
 | `DICTATE_INSERT` | `type` | `type` keystroke by keystroke, `paste` in one, or `auto` |
 | `DICTATE_TYPE_MAX_CHARS` | `80` | `auto` types up to this length and pastes above it |
 | `DICTATE_PASTE_KEY` | `shift+insert` | Paste chord: `shift+insert`, `ctrl+v`, `ctrl+shift+v` |
-| `DICTATE_PRIMARY` | `1` | Rewrite reads the primary selection; `0` uses `Ctrl+C` |
 | `DICTATE_CONFIG` | `~/.config/whisper-dictate/config` | Settings file |
 
 ### Getting the text in faster
@@ -391,14 +379,12 @@ bin/dictate-toggle              # toggle recording / transcribe
 bin/dictate-watch               # time cap and silence auto-stop for a recording
 bin/dictate-tray                # system tray (click to toggle)
 bin/dictate-polish.py           # copy-edit + dictionary fixes (stdin only)
-bin/rewrite-selection           # rewrite highlighted text
-bin/rewrite-text.py             # Mistral rewrite (stdin only)
 bin/dictate-llm-keepalive       # ping Ollama so the model stays resident
 contrib/config.example          # seeds ~/.config/whisper-dictate/config
 contrib/dictionary.example      # seeds ~/.config/whisper-dictate/dictionary
 contrib/local.dictate-toggle.desktop
 contrib/local.dictate-tray.desktop
-contrib/local.rewrite-selection.desktop
+contrib/local.dictate-cancel.desktop
 contrib/systemd/                # user units + ydotool socket drop-in
 contrib/ollama/                 # optional system pin for mistral:7b
 tests/                          # pytest suite (guardrails, dictionary, locking)
@@ -413,8 +399,8 @@ SECURITY.md
 ```bash
 pip install pytest
 pytest tests -q
-shellcheck bin/dictate-toggle bin/dictate-common.sh bin/rewrite-selection \
-  bin/dictate-llm-keepalive install.sh uninstall.sh
+shellcheck bin/dictate-toggle bin/dictate-common.sh bin/dictate-llm-keepalive \
+  install.sh uninstall.sh
 ```
 
 The tests cover the parts that fail silently: the polish guardrails that stop

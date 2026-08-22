@@ -47,13 +47,13 @@ fi
 pkill -f "$BIN_DIR/dictate-tray" >/dev/null 2>&1 || true
 
 for name in dictate-common.sh dictate-toggle dictate-watch dictate-tray \
-            dictate-polish.py dictate-llm-keepalive rewrite-selection rewrite-text.py; do
+            dictate-polish.py dictate-llm-keepalive; do
   rm -f "$BIN_DIR/$name"
 done
 
 rm -f "$APP_DIR/local.dictate-toggle.desktop" \
       "$APP_DIR/local.dictate-tray.desktop" \
-      "$APP_DIR/local.rewrite-selection.desktop" \
+      "$APP_DIR/local.dictate-cancel.desktop" \
       "$AUTOSTART_DIR/local.dictate-tray.desktop" \
       "$UNIT_DIR/dictate-llm-keepalive.service" \
       "$UNIT_DIR/dictate-llm-keepalive.timer" \

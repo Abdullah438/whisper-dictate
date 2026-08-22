@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 # Ollama unloads and reloads the model whenever num_ctx changes, so every
-# caller here (polish, rewrite, keepalive) must ask for the same context size.
+# caller here (polish, keepalive) must ask for the same context size.
 # 8192 fits the prompt plus a reply for a full DICTATE_MAX_SECONDS dictation;
 # at 4096 a long one ran out of room and came back with its ending missing.
 LLM_NUM_CTX = 8192

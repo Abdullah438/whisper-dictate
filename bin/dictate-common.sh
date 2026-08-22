@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared settings loader. Sourced by dictate-toggle and rewrite-selection.
+# Shared settings loader. Sourced by dictate-toggle.
 #
 # A desktop global shortcut launches these scripts without your shell
 # environment, so `export DICTATE_LLM=0` in ~/.zshrc never reaches them.
@@ -59,7 +59,7 @@ dictate_export_settings() {
 dictate_load_config
 dictate_export_settings
 
-# Lock helper shared by dictation and rewrite.
+# Lock helper for dictate-toggle.
 #
 # mkdir is atomic and, unlike an flock fd, cannot be inherited by a child such
 # as pw-cat. The PID inside lets a later press tell "another run is working"
@@ -101,8 +101,8 @@ dictate_acquire_lock() {
 #
 # `ydotool type` emits a newline as KEY_ENTER. In a message box — WhatsApp Web,
 # Slack, Discord, Telegram, most webmail reply fields — Enter *sends*, so a
-# two-line rewrite fires off half a sentence and types the remainder into the
-# next message. There is no way to ask the app which it wants, so this sends
+# two-line transcript fires off half a sentence and types the remainder into
+# the next message. There is no way to ask the app which it wants, so this sends
 # Shift+Enter, the combination those apps use for a line break; a plain text
 # area or editor treats it the same as Enter, which makes it the safer default.
 #

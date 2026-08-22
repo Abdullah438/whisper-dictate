@@ -50,7 +50,7 @@ UNIT_DIR="${HOME}/.config/systemd/user"
 YDOTOOL_DROPIN="${UNIT_DIR}/ydotool.service.d"
 DESKTOP_ID="local.dictate-toggle.desktop"
 TRAY_DESKTOP_ID="local.dictate-tray.desktop"
-REWRITE_DESKTOP_ID="local.rewrite-selection.desktop"
+CANCEL_DESKTOP_ID="local.dictate-cancel.desktop"
 AUTOSTART_DIR="${HOME}/.config/autostart"
 CONFIG_DIR="${XDG_CONFIG_HOME:-${HOME}/.config}/whisper-dictate"
 
@@ -63,8 +63,6 @@ install -m 0755 "$ROOT/bin/dictate-watch" "$BIN_DIR/dictate-watch"
 install -m 0755 "$ROOT/bin/dictate-llm-keepalive" "$BIN_DIR/dictate-llm-keepalive"
 install -m 0755 "$ROOT/bin/dictate-polish.py" "$BIN_DIR/dictate-polish.py"
 install -m 0755 "$ROOT/bin/dictate-tray" "$BIN_DIR/dictate-tray"
-install -m 0755 "$ROOT/bin/rewrite-selection" "$BIN_DIR/rewrite-selection"
-install -m 0755 "$ROOT/bin/rewrite-text.py" "$BIN_DIR/rewrite-text.py"
 
 # Never overwrite settings the user has already edited.
 for sample in config dictionary; do
@@ -77,8 +75,8 @@ sed "s|^Exec=.*|Exec=${BIN_DIR}/dictate-toggle|" \
   "$ROOT/contrib/local.dictate-toggle.desktop" >"$APP_DIR/$DESKTOP_ID"
 sed "s|^Exec=.*|Exec=${BIN_DIR}/dictate-tray --daemon|" \
   "$ROOT/contrib/local.dictate-tray.desktop" >"$APP_DIR/$TRAY_DESKTOP_ID"
-sed "s|^Exec=.*|Exec=${BIN_DIR}/rewrite-selection|" \
-  "$ROOT/contrib/local.rewrite-selection.desktop" >"$APP_DIR/$REWRITE_DESKTOP_ID"
+sed "s|^Exec=.*|Exec=${BIN_DIR}/dictate-toggle --cancel|" \
+  "$ROOT/contrib/local.dictate-cancel.desktop" >"$APP_DIR/$CANCEL_DESKTOP_ID"
 cp "$APP_DIR/$TRAY_DESKTOP_ID" "$AUTOSTART_DIR/$TRAY_DESKTOP_ID"
 
 install -m 0644 "$ROOT/contrib/systemd/dictate-llm-keepalive.service" \
@@ -102,13 +100,13 @@ fi
 
 echo "Installed scripts to ${BIN_DIR}"
 echo "Installed dictation launcher to ${APP_DIR}/${DESKTOP_ID}"
-echo "Installed rewrite launcher to ${APP_DIR}/${REWRITE_DESKTOP_ID}"
+echo "Installed cancel launcher to ${APP_DIR}/${CANCEL_DESKTOP_ID}"
 echo "Installed tray icon (autostarts on login) to ${AUTOSTART_DIR}/${TRAY_DESKTOP_ID}"
 echo "Settings and dictionary live in ${CONFIG_DIR}"
 echo
 echo "Bind these in your desktop's custom shortcuts:"
 echo "  Dictation:  ${BIN_DIR}/dictate-toggle"
-echo "  Rewrite:    ${BIN_DIR}/rewrite-selection"
+echo "  Cancel:     ${BIN_DIR}/dictate-toggle --cancel"
 echo
 echo "Next:"
 echo "  1. Install whisper.cpp (whisper-cli), PipeWire pw-cat, ydotool, notify-send,"

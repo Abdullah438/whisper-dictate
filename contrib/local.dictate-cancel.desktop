@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Dictate Cancel
+Comment=Cancel the current dictation without transcribing or typing it
+Exec=dictate-toggle --cancel
+Icon=edit-undo
+NoDisplay=true
+Terminal=false
+StartupNotify=false
+X-KDE-GlobalAccel-CommandShortcut=true
+Categories=Utility;Audio;

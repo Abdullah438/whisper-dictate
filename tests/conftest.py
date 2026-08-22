@@ -29,11 +29,6 @@ def polish_mod():
 
 
 @pytest.fixture(scope="session")
-def rewrite_mod():
-    return _load("rewrite_text", "rewrite-text.py")
-
-
-@pytest.fixture(scope="session")
 def watch_mod():
     return _load("dictate_watch", "dictate-watch")
 

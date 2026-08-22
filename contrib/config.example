@@ -1,6 +1,6 @@
 # ~/.config/whisper-dictate/config
 #
-# Sourced by dictate-toggle and rewrite-selection. A desktop global shortcut
+# Sourced by dictate-toggle. A desktop global shortcut
 # starts those scripts without your shell environment, so this file — not
 # ~/.bashrc or ~/.zshrc — is where settings belong. An environment variable of
 # the same name still wins over anything here.
@@ -64,8 +64,8 @@
 #DICTATE_KEY_DELAY=5
 
 # How a line break is typed. ydotool sends a newline as Enter, and in a message
-# box Enter *sends*, so a two-line rewrite would post half of it and type the
-# rest into the next message. shift-enter is the line break those apps expect
+# box Enter *sends*, so a two-line transcript would post half of it and type
+# the rest into the next message. shift-enter is the line break those apps expect
 # and behaves like Enter in a plain text field. Use "enter" if you only ever
 # dictate into editors, or "space" to join every line into one.
 #DICTATE_NEWLINE=shift-enter
