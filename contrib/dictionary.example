@@ -2,10 +2,12 @@
 #
 # Names, jargon, and spellings Whisper keeps getting wrong.
 #   spoken form = replacement
+#   spoken form, another spoken form = replacement
 #
-# The left side is matched whole-word and case-insensitively, and may be
-# several words. Longer entries are applied first. Applied after LLM cleanup,
-# so it always wins.
+# The left side is matched whole-word and case-insensitively, may be several
+# words, and may list multiple spoken forms separated by commas when they all
+# mean the same replacement. Longer entries are applied first. Applied after
+# LLM cleanup, so it always wins.
 
 #kubernetes = Kubernetes
 #pipe wire = PipeWire

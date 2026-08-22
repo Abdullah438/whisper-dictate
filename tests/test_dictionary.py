@@ -40,6 +40,23 @@ def test_replacement_backslashes_are_literal(polish_mod, tmp_path):
     assert polish_mod.apply_dictionary("a back slash here", entries) == r"a \1 \n here"
 
 
+def test_comma_separated_spoken_forms_share_one_replacement(polish_mod, tmp_path):
+    entries = polish_mod.load_dictionary(
+        write(tmp_path, "Catchy OS, CatchyOS = CachyOS\n")
+    )
+    assert entries == [("Catchy OS", "CachyOS"), ("CatchyOS", "CachyOS")]
+    assert polish_mod.apply_dictionary("I installed Catchy OS and CatchyOS", entries) == (
+        "I installed CachyOS and CachyOS"
+    )
+
+
+def test_comma_separated_forms_ignore_stray_whitespace(polish_mod, tmp_path):
+    entries = polish_mod.load_dictionary(
+        write(tmp_path, "Omarchi ,  Omarji ,, = OmarchyOS\n")
+    )
+    assert entries == [("Omarchi", "OmarchyOS"), ("Omarji", "OmarchyOS")]
+
+
 def test_missing_file_is_not_an_error(polish_mod, tmp_path):
     assert polish_mod.load_dictionary(str(tmp_path / "nope")) == []
 

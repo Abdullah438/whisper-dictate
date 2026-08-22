@@ -63,7 +63,11 @@ def dictionary_path() -> str:
 
 
 def load_dictionary(path: str | None = None) -> list[tuple[str, str]]:
-    """Read `spoken = Replacement` lines the user keeps for names and jargon."""
+    """Read `spoken = Replacement` lines the user keeps for names and jargon.
+
+    The left side may be a comma-separated list of spoken forms that all mean
+    the same replacement, e.g. `Catchy OS, CatchyOS = CachyOS`.
+    """
     try:
         with open(path or dictionary_path(), encoding="utf-8") as fh:
             lines = fh.read().splitlines()
@@ -74,12 +78,14 @@ def load_dictionary(path: str | None = None) -> list[tuple[str, str]]:
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
-        spoken, _, replacement = line.partition("=")
-        spoken = " ".join(spoken.split())
+        spoken_forms, _, replacement = line.partition("=")
         replacement = replacement.strip()
-        if not spoken or not replacement:
+        if not replacement:
             continue
-        entries.append((spoken, replacement))
+        for spoken in spoken_forms.split(","):
+            spoken = " ".join(spoken.split())
+            if spoken:
+                entries.append((spoken, replacement))
     # Longest first, so "visual studio code" wins over "code".
     entries.sort(key=lambda entry: len(entry[0]), reverse=True)
     return entries[:DICTIONARY_MAX_ENTRIES]

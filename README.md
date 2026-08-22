@@ -211,12 +211,15 @@ Whisper will keep mishearing the names and jargon you actually use. Put them in
 pipe wire = PipeWire
 why do tool = ydotool
 kubernetes = Kubernetes
+Catchy OS, CatchyOS = CachyOS
 ```
 
 The left side is matched whole-word and case-insensitively, and may be several
-words; longer entries are applied first. This pass runs last, after the LLM, so
-it always wins. Unlike `WHISPER_PROMPT`, it cannot push Whisper into inventing
-those words when you did not say them.
+words; longer entries are applied first. List more than one spoken form for
+the same replacement by separating them with commas, as in the `CachyOS`
+example above, rather than repeating the line. This pass runs last, after the
+LLM, so it always wins. Unlike `WHISPER_PROMPT`, it cannot push Whisper into
+inventing those words when you did not say them.
 
 ### Line breaks
 
