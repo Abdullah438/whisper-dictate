@@ -150,6 +150,45 @@ def test_does_not_stop_before_the_speaker_starts(tmp_path):
         watcher.wait(timeout=10)
 
 
+def test_does_not_stop_on_a_pause_shorter_than_configured(tmp_path):
+    """A quieter word followed by a short pause must not read as sustained
+    silence. Regression test: DICTATE_SILENCE_SECONDS used to double as the
+    RMS averaging window, so a quieter word blended with a shorter pause
+    could average out to "quiet" well before the speaker had gone silent
+    that long -- cutting the recording off mid-sentence."""
+    state = tmp_path / "run" / "whisper-dictate"
+    state.mkdir(parents=True)
+    wav = state / "dictation.wav"
+    write_wav(wav, [])
+    recorder = fake_recorder(tmp_path)
+    (state / "record.pid").write_text(str(recorder.pid))
+    bindir = staged_watcher(tmp_path)
+
+    moderate = [1200 if i % 2 else -1200 for i in range(4000)]
+    grow_wav(
+        wav,
+        [CHUNK_QUIET] * 2 + [CHUNK_LOUD] * 4 + [moderate] * 10 + [CHUNK_QUIET] * 40,
+        interval=0.1,
+    )
+
+    watcher = subprocess.Popen(
+        [sys.executable, str(bindir / "dictate-watch")],
+        env={**os.environ, "XDG_RUNTIME_DIR": str(tmp_path / "run"),
+             "DICTATE_MAX_SECONDS": "0", "DICTATE_SILENCE_SECONDS": "2.0"},
+    )
+    try:
+        # The pause starts around t=1.6s; this is only ~1s into it.
+        time.sleep(2.6)
+        assert not (bindir / "dictate-toggle.called").exists()
+        # The pause has now run past the configured 2s.
+        time.sleep(2.5)
+        assert (bindir / "dictate-toggle.called").exists()
+    finally:
+        recorder.kill()
+        recorder.wait()
+        watcher.wait(timeout=10)
+
+
 def test_exits_when_the_recording_ends(tmp_path):
     state = tmp_path / "run" / "whisper-dictate"
     state.mkdir(parents=True)

@@ -18,6 +18,14 @@ RATE = 16000
 BYTES_PER_SAMPLE = 2
 WAV_HEADER = 44
 POLL_SECONDS = 0.25
+# The level check reads only this much trailing audio, kept short so it
+# reflects the current instant rather than blending it with whatever came
+# before. DICTATE_SILENCE_SECONDS then requires that instant to read quiet on
+# every poll for that whole span — using it as the RMS window instead (an
+# earlier version of this script did) makes the timeout blend a pause with
+# the quieter speech next to it, so it can average out to "quiet" and stop
+# the recording well before the speaker has actually gone silent that long.
+ANALYSIS_SECONDS = 0.3
 
 # Levels are calibrated against this recording rather than fixed, because a
 # usable absolute threshold does not exist: microphone gain differs by an order
@@ -145,7 +153,7 @@ class SilenceDetector:
         return max(floor * SPEECH_OVER_FLOOR, MIN_SPEECH_RMS)
 
     def feed(self, level: float) -> bool:
-        """Take one reading of the trailing window; True means stop recording."""
+        """Take one reading; True means this instant reads as quiet."""
         self.floor = level if self.floor is None else min(self.floor, level)
         self.peak = max(self.peak, level)
         if self.peak >= self.speech_threshold():
@@ -181,7 +189,9 @@ def main() -> int:
     if max_seconds <= 0 and silence_seconds <= 0:
         return 0
 
+    analysis_seconds = min(ANALYSIS_SECONDS, silence_seconds) if silence_seconds > 0 else ANALYSIS_SECONDS
     detector = SilenceDetector(absolute=silence_level)
+    quiet_since: float | None = None
     while True:
         time.sleep(POLL_SECONDS)
         if not recorder_alive(pidfile):
@@ -194,8 +204,15 @@ def main() -> int:
         if silence_seconds <= 0:
             continue
 
-        level = tail_rms(wav, silence_seconds)
-        if level is not None and detector.feed(level):
+        level = tail_rms(wav, analysis_seconds)
+        if level is None:
+            continue
+        if not detector.feed(level):
+            quiet_since = None
+            continue
+        if quiet_since is None:
+            quiet_since = time.monotonic()
+        elif time.monotonic() - quiet_since >= silence_seconds:
             stop("silence")
             return 0
 
